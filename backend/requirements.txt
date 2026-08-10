@@ -1,0 +1,9 @@
+# Backend MONITOREO_SOPORTE — dependencias (Fase 3)
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30
+sqlalchemy>=2.0,<3.0
+pyodbc>=5.1
+pydantic>=2.7,<3.0
+pydantic-settings>=2.3
+python-jose[cryptography]>=3.3
+bcrypt>=4.0

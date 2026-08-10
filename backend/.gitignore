@@ -1,0 +1,19 @@
+# Credenciales y configuración local
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Logs
+logs/
+*.log
+
+# IDE / SO
+.idea/
+.vscode/
+.DS_Store
