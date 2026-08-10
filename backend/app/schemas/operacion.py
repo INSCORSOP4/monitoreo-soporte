@@ -31,6 +31,7 @@ class RespaldoEjecucionCreate(BaseModel):
     tamano_bytes: int | None = Field(default=None, ge=0)
     fecha_generacion: datetime | None = None
     fuera_de_horario: bool | None = None
+    detalle: str | None = Field(default=None, max_length=2000)  # trazabilidad del agente (§35)
 
 
 class IncidenciaOut(BaseModel):

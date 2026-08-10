@@ -73,6 +73,7 @@ backend/
 | POST | `/api/v1/agentes` | Crea agente y devuelve su API key (única vez, formato `<AgenteId>.<secreto>`) |
 | GET | `/api/v1/agentes` | Lista agentes (sin exponer el hash) |
 | GET | `/api/v1/ingesta/agente` | Identidad del agente (header `X-Agent-Key`, §8) |
+| GET | `/api/v1/ingesta/configuracion` | Catálogo completo para el agente: bases + rutas + horarios (§35, Fase 4) |
 | GET | `/api/v1/servidores` | Catálogo de servidores |
 | GET | `/api/v1/bases-datos?grupo_respaldo_id=N` | Catálogo de bases (§9/§10) |
 | POST | `/api/v1/respaldos/ejecuciones` | Ingesta del agente (§8): reporta validación diaria por base (idempotente por Base+Fecha). Si `estado=ERROR`, crea/reutiliza la incidencia automática `SISTEMA` con el responsable del día (§26) |
@@ -112,5 +113,6 @@ En desarrollo (loopback / VPN de confianza) pueden dejarse vacíos.
 ## Pendientes de la Fase 3
 
 - Reporte de transferencias del agente (transferencias → NAS) y reporte de Jobs/Archivos (fases 6-7).
+- Agente 10.0.3.8: proyecto independiente en `../agente/` (SQL Backup Checker, Fase 4).
 - Módulos de Jobs, Archivos de confianza, Actividades manuales y Configuración (fases 7-8 del plan).
 - Endpoint de rotación de API key (`POST /agentes/{id}/rotar-key`); hoy se rota vía `scripts/rotar_api_key_agente.py`.
