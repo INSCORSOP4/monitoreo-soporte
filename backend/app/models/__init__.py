@@ -3,6 +3,7 @@
 Importar aquí todos los modelos para que queden registrados en Base.metadata.
 """
 from app.models.catalogos import (  # noqa: F401
+    CatAgente,
     CatBaseDatos,
     CatGrupoRespaldo,
     CatRol,

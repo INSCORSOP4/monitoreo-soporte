@@ -25,7 +25,7 @@ class CatUsuario(Base):
     # Opcional: referencia lógica a SEGURIDAD_PROSUR; NULL para usuarios creados localmente.
     usuario_externo_id: Mapped[int | None] = mapped_column("UsuarioExternoId", Integer, nullable=True)
     nombre_completo: Mapped[str] = mapped_column("NombreCompleto", String(120), nullable=False)
-    correo: Mapped[str | None] = mapped_column("Correo", String(120))
+    correo: Mapped[str] = mapped_column("Correo", String(120), nullable=False, unique=True)  # identificador de login
     rol_id: Mapped[int] = mapped_column("RolId", Integer, ForeignKey("cat_roles.RolId"), nullable=False)
     activo: Mapped[bool] = mapped_column("Activo", Boolean, nullable=False, server_default="1")
     password_hash: Mapped[str | None] = mapped_column("PasswordHash", String(255))  # hash bcrypt, nunca en claro
@@ -78,3 +78,15 @@ class CatTipoIncidencia(Base):
     codigo: Mapped[str] = mapped_column("Codigo", String(40), nullable=False, unique=True)
     nombre: Mapped[str] = mapped_column("Nombre", String(80), nullable=False)
     activo: Mapped[bool] = mapped_column("Activo", Boolean, nullable=False, server_default="1")
+
+
+class CatAgente(Base):
+    """Agente (máquina) que reporta al backend (§8). No es una persona."""
+
+    __tablename__ = "cat_agentes"
+
+    agente_id: Mapped[int] = mapped_column("AgenteId", Integer, primary_key=True, autoincrement=True)
+    nombre: Mapped[str] = mapped_column("Nombre", String(50), nullable=False, unique=True)
+    api_key_hash: Mapped[str] = mapped_column("ApiKeyHash", String(255), nullable=False)  # hash bcrypt, nunca en claro
+    activo: Mapped[bool] = mapped_column("Activo", Boolean, nullable=False, server_default="1")
+    fecha_registro: Mapped[datetime] = mapped_column("FechaRegistro", DateTime(0), nullable=False, server_default=text("SYSDATETIME()"))

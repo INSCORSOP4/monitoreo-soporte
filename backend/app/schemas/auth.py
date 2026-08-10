@@ -3,8 +3,10 @@ from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
-    usuario: str = Field(min_length=1, max_length=50)
-    password: str = Field(min_length=1, max_length=128)
+    # El correo es el identificador de login (único en cat_usuarios)
+    correo: str = Field(min_length=3, max_length=120)
+    # Límite de 72 caracteres: máximo que soporta bcrypt (bytes) sin error
+    password: str = Field(min_length=1, max_length=72)
 
 
 class LoginResponse(BaseModel):

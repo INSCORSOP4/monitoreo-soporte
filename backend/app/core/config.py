@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
 
     # --- MONITOREO_SOPORTE (SQL Server 2019) ---
+    # Si DB_ODBC_CONNECT está definida, tiene PRIORIDAD: es la connection string
+    # ODBC completa (útil para LocalDB / instancias con nombres como
+    # "(localdb)\MSSQLLocalDB" que son frágiles de escapar en la URL).
+    db_odbc_connect: str = ""
     db_host: str = "10.0.3.8"
     db_port: int = 1433
     db_name: str = "MONITOREO_SOPORTE"
@@ -80,6 +84,13 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         """Cadena de conexión a MONITOREO_SOPORTE."""
+        if self.db_odbc_connect:
+            # pyodbc requiere Driver=; si la connection string no lo trae, lo inyectamos.
+            conn = self.db_odbc_connect
+            if "Driver=" not in conn and "DRIVER=" not in conn:
+                conn = f"DRIVER={{{self.db_driver}}};{conn}"
+            # mssql+pyodbc:///?odbc_connect=<connection string url-encoded>
+            return f"mssql+pyodbc:///?odbc_connect={quote_plus(conn)}"
         return self._sqlserver_url(
             self.db_host, self.db_port, self.db_name,
             self.db_user, self.db_password, self.db_driver,

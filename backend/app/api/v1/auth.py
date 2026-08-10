@@ -15,7 +15,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/login", response_model=LoginResponse)
 def login(body: LoginRequest) -> LoginResponse:
     try:
-        usuario = authenticate(body.usuario, body.password)
+        # El login busca al usuario por Correo (identificador único, §22)
+        usuario = authenticate(body.correo, body.password)
     except AuthenticationError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

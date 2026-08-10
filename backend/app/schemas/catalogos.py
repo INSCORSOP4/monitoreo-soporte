@@ -1,7 +1,7 @@
 """Schemas de catálogos (roles, usuarios, servidores, grupos, bases)."""
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class RolOut(BaseModel):
@@ -20,7 +20,7 @@ class UsuarioOut(BaseModel):
     usuario_id: int
     usuario_externo_id: int | None = None
     nombre_completo: str
-    correo: str | None = None
+    correo: str
     rol_id: int
     activo: bool
     debe_cambiar_password: bool
@@ -28,9 +28,16 @@ class UsuarioOut(BaseModel):
 
 
 class UsuarioCreate(BaseModel):
-    usuario_externo_id: int | None = Field(default=None, description="Referencia opcional a SEGURIDAD_PROSUR")
+    # Normaliza 0 -> None: el cliente suele enviar 0 como "sin referencia externa",
+    # pero el índice único filtrado trata 0 como un valor real (solo NULL queda libre).
+    usuario_externo_id: int | None = Field(default=None, description="Referencia opcional a SEGURIDAD_PROSUR; 0 se guarda como NULL")
+
+    @field_validator("usuario_externo_id")
+    @classmethod
+    def _cero_a_null(cls, v: int | None) -> int | None:
+        return None if v == 0 else v
     nombre_completo: str = Field(min_length=3, max_length=120)
-    correo: str | None = Field(default=None, max_length=120)
+    correo: str = Field(min_length=3, max_length=120, description="Identificador de login: único y obligatorio")
     rol_id: int
     # Límite de 72 caracteres: máximo que soporta bcrypt (bytes) sin error.
     password: str | None = Field(default=None, min_length=8, max_length=72, description="Contraseña en claro; se hashea con bcrypt antes de guardar")

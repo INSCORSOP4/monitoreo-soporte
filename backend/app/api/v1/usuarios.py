@@ -1,6 +1,6 @@
 """Usuarios — cat_usuarios (usuarios locales con hash bcrypt)."""
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -30,21 +30,8 @@ def obtener_usuario(usuario_id: int, db: Session = Depends(get_db)) -> UsuarioOu
 
 @router.post("", response_model=UsuarioOut, status_code=201)
 def crear_usuario(body: UsuarioCreate, db: Session = Depends(get_db)) -> UsuarioOut:
-    # Unicidad: por UsuarioExternoId cuando existe (índice filtrado), y por
-    # nombre_completo para los usuarios locales creados sin referencia externa.
-    if body.usuario_externo_id is not None:
-        existente = db.scalar(
-            select(CatUsuario).where(CatUsuario.usuario_externo_id == body.usuario_externo_id)
-        )
-        if existente:
-            raise HTTPException(status_code=409, detail="El usuario externo ya está registrado")
-    existente = db.scalar(
-        select(CatUsuario).where(CatUsuario.nombre_completo == body.nombre_completo)
-    )
-    if existente:
-        raise HTTPException(status_code=409, detail="Ya existe un usuario con ese nombre")
-
-    # La contraseña se guarda SOLO como hash bcrypt (nunca en claro, §35)
+    # La unicidad del Correo (y del UsuarioExternoId) la garantiza la base de datos
+    # (UQ_cat_usuarios_Correo + índice único filtrado). Solo capturamos el error.
     password_hash = hash_password(body.password) if body.password else None
     usuario = CatUsuario(
         usuario_externo_id=body.usuario_externo_id,
@@ -55,6 +42,28 @@ def crear_usuario(body: UsuarioCreate, db: Session = Depends(get_db)) -> Usuario
         debe_cambiar_password=body.debe_cambiar_password,
     )
     db.add(usuario)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        # Distinguimos el origen del error: correo duplicado, usuario externo duplicado
+        # o FK de rol inválida — con mensajes claros en lugar de un 422 genérico.
+        err = str(exc.orig)
+        if "UQ_cat_usuarios_Correo" in err:
+            raise HTTPException(status_code=409, detail="El correo ya está registrado") from exc
+        if "UQ_cat_usuarios_UsuarioExternoId" in err:
+            raise HTTPException(
+                status_code=409,
+                detail="El UsuarioExternoId ya está registrado (usa 0 o null para usuarios locales)",
+            ) from exc
+        if "FK_cat_usuarios_Rol" in err:
+            raise HTTPException(
+                status_code=422,
+                detail=f"rol_id {body.rol_id} no existe en cat_roles (consulta GET /api/v1/roles)",
+            ) from exc
+        raise HTTPException(
+            status_code=422,
+            detail="No se pudo crear el usuario (verifica rol_id y referencias)",
+        ) from exc
     db.refresh(usuario)
     return UsuarioOut.model_validate(usuario)

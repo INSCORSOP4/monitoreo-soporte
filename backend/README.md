@@ -50,6 +50,8 @@ backend/
             ├── router.py      #   Agregador /api/v1
             ├── auth.py        #   POST /auth/login
             ├── usuarios.py    #   CRUD cat_usuarios
+            ├── roles.py       #   Catálogo de roles
+            ├── agentes.py     #   Agentes (máquinas) con API key (§8)
             ├── servidores.py  #   CRUD cat_servidores
             ├── bases_datos.py #   CRUD cat_bases_datos (§9, §10)
             ├── respaldos.py   #   Bitácora diaria y resumen por grupo (§24)
@@ -65,6 +67,8 @@ backend/
 | Método | Ruta | Descripción |
 |---|---|---|
 | POST | `/api/v1/auth/login` | Autenticación (JWT) |
+| POST | `/api/v1/agentes` | Crea agente y devuelve su API key (única vez) |
+| GET | `/api/v1/agentes` | Lista agentes (sin exponer el hash) |
 | GET | `/api/v1/servidores` | Catálogo de servidores |
 | GET | `/api/v1/bases-datos?grupo_respaldo_id=N` | Catálogo de bases (§9/§10) |
 | GET | `/api/v1/respaldos/resumen?fecha=2026-08-08` | Resumen por grupo (bitácora §24) |
@@ -74,14 +78,14 @@ backend/
 
 ## Autenticación (§22)
 
-- `AUTH_MODE=stub` (desarrollo): usuario `admin` / password `admin` — **nunca en producción**.
+- `AUTH_MODE=stub` (desarrollo): correo `admin` / password `admin` — **nunca en producción**.
 - `AUTH_MODE=seguridad`: valida contra `MONITOREO_SOPORTE.dbo.cat_usuarios` (usuarios locales creados con `POST /usuarios`; contraseña almacenada como hash bcrypt, `DebeCambiarPassword` fuerza el cambio en el primer login).
+- El **correo es el identificador de login** (único y obligatorio: `UQ_cat_usuarios_Correo`); el login busca `WHERE Correo = ?`.
 - `UsuarioExternoId` es opcional: referencia lógica a `SEGURIDAD_PROSUR` cuando exista vínculo; los usuarios pueden crearse localmente.
 - Los endpoints protegidos requieren `Authorization: Bearer <token>`.
 
 ## Pendientes de la Fase 3
 
 - Resolver el rol del usuario desde `cat_roles` en el login (hoy se devuelve SOPORTE por defecto).
-- Definir columna de login/usuario (hoy se autentica por `nombre_completo`).
 - Módulos de Jobs, Archivos de confianza, Actividades manuales y Configuración (fases 7-8 del plan).
 - Endpoint de ingesta para agentes (reporte de ejecuciones/transferencias).

@@ -4,6 +4,7 @@
   almacena SOLO como hash bcrypt (PasswordHash).
 - La emisión/validación del token de sesión se gestiona aquí.
 """
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -27,6 +28,23 @@ def verify_password(password: str, password_hash: str | None) -> bool:
         return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
     except ValueError:
         return False
+
+
+# --- API keys de agentes (§8) ---
+
+def generate_api_key() -> str:
+    """Genera una API key aleatoria para un agente (se muestra UNA sola vez)."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_api_key(api_key: str) -> str:
+    """Hash bcrypt de la API key (nunca se almacena en claro)."""
+    return hash_password(api_key)
+
+
+def verify_api_key(api_key: str, api_key_hash: str | None) -> bool:
+    """Verifica una API key contra su hash bcrypt."""
+    return verify_password(api_key, api_key_hash)
 
 
 # --- Tokens JWT ---
