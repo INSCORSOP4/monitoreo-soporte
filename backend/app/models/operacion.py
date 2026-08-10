@@ -20,7 +20,7 @@ class RespaldoEjecucion(Base):
     fecha_generacion: Mapped[datetime | None] = mapped_column("FechaGeneracion", DateTime(0))
     fuera_de_horario: Mapped[bool | None] = mapped_column("FueraDeHorario", Boolean)
     detalle: Mapped[str | None] = mapped_column("Detalle", Text)
-    incidencia_id: Mapped[int | None] = mapped_column("IncidenciaId", Integer)
+    incidencia_id: Mapped[int | None] = mapped_column("IncidenciaId", Integer, ForeignKey("incidencias.IncidenciaId"))
     usuario_reviso_id: Mapped[int | None] = mapped_column("UsuarioRevisoId", Integer, ForeignKey("cat_usuarios.UsuarioId"))
     fecha_registro: Mapped[datetime] = mapped_column("FechaRegistro", DateTime(0), nullable=False, server_default=text("SYSDATETIME()"))
 

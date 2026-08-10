@@ -3,18 +3,20 @@
 Flujo:
   POST /api/v1/agentes  -> crea el agente y devuelve la API key EN CLARO
                            (única vez; solo se persiste su hash bcrypt).
+                           Formato: '<AgenteId>.<secreto>' (ver security.py).
   GET  /api/v1/agentes  -> lista agentes sin exponer ApiKeyHash.
 
-La autenticación de agentes (X-API-Key) se validará en el endpoint de ingesta
-de reportes (Fase 4) usando verify_api_key contra ApiKeyHash.
+La autenticación de agentes (X-Agent-Key) se valida en los endpoints de
+ingesta con verify_agent_key contra ApiKeyHash.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
-from app.core.security import generate_api_key, hash_api_key
+from app.core.security import compose_api_key, generate_secreto, hash_api_key
 from app.models import CatAgente
 from app.schemas.agentes import AgenteCreate, AgenteOut, AgenteWithApiKey
 
@@ -27,15 +29,22 @@ def crear_agente(body: AgenteCreate, db: Session = Depends(get_db)) -> AgenteWit
     if existente:
         raise HTTPException(status_code=409, detail="Ya existe un agente con ese nombre")
 
-    api_key = generate_api_key()
+    # El secreto se genera ANTES del INSERT; el hash persiste solo el secreto.
+    secreto = generate_secreto()
     agente = CatAgente(
         nombre=body.nombre,
-        api_key_hash=hash_api_key(api_key),
+        api_key_hash=hash_api_key(secreto),
         activo=body.activo,
     )
     db.add(agente)
+    try:
+        db.flush()  # obtiene AgenteId para componer la key '<AgenteId>.<secreto>'
+    except IntegrityError:
+        # Carrera: otra request creó el mismo nombre entre el SELECT y el INSERT.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Ya existe un agente con ese nombre") from None
+    api_key = compose_api_key(agente.agente_id, secreto)
     db.commit()
-    db.refresh(agente)
 
     # La API key en claro se devuelve UNA sola vez; solo el hash queda en BD.
     return AgenteWithApiKey(

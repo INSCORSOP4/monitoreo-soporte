@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     log_level: str = "INFO"
+    # TLS (HTTPS) en el propio servicio — §38: la VPN cifra entre redes, pero
+    # X-Agent-Key viaja en el header y debe ir SIEMPRE por TLS. En producción
+    # apuntar estos a los archivos del certificado; en dev pueden quedar vacíos.
+    ssl_certfile: str = ""
+    ssl_keyfile: str = ""
     # NoDecode evita que pydantic-settings intente json.loads sobre la lista;
     # el validador before convierte la cadena "a,b,c" del .env en lista.
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
