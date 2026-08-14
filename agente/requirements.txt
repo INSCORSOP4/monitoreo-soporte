@@ -1,0 +1,3 @@
+# Agente 10.0.3.8 — SOLO biblioteca estándar de Python 3.11+.
+# No requiere pip install: urllib.request, json, logging, pathlib, datetime.
+# Requisito: Python 3.11+ instalado en 10.0.3.8.

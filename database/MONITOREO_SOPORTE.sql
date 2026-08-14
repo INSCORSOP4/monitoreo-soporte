@@ -86,13 +86,14 @@ BEGIN
         UsuarioId            INT           NOT NULL IDENTITY(1,1),
         UsuarioExternoId     INT           NULL,          -- FK lógica a SEGURIDAD_PROSUR (opcional)
         NombreCompleto       VARCHAR(120)  NOT NULL,
-        Correo               VARCHAR(120)  NULL,
+        Correo               VARCHAR(120)  NOT NULL,      -- identificador real de login: único y obligatorio
         RolId                INT           NOT NULL,
         Activo               BIT           NOT NULL CONSTRAINT DF_cat_usuarios_Activo DEFAULT (1),
         PasswordHash         VARCHAR(255)  NULL,          -- hash bcrypt (nunca contraseña en claro)
         DebeCambiarPassword  BIT           NOT NULL CONSTRAINT DF_cat_usuarios_DebeCambiar DEFAULT (1),
         FechaRegistro        DATETIME2(0)  NOT NULL CONSTRAINT DF_cat_usuarios_FechaRegistro DEFAULT (SYSDATETIME()),
         CONSTRAINT PK_cat_usuarios PRIMARY KEY CLUSTERED (UsuarioId),
+        CONSTRAINT UQ_cat_usuarios_Correo UNIQUE (Correo),
         CONSTRAINT FK_cat_usuarios_Rol FOREIGN KEY (RolId) REFERENCES dbo.cat_roles (RolId)
     );
 END
@@ -194,6 +195,28 @@ BEGIN
         Activo           BIT           NOT NULL CONSTRAINT DF_cat_tipos_inc_Activo DEFAULT (1),
         CONSTRAINT PK_cat_tipos_incidencia PRIMARY KEY CLUSTERED (TipoIncidenciaId),
         CONSTRAINT UQ_cat_tipos_incidencia_Codigo UNIQUE (Codigo)
+    );
+END
+GO
+
+/* ----------------------------------------------------------------------------
+   1.7 cat_agentes  (§8) — Agentes (máquinas) que reportan al backend.
+        - Un agente NO es una persona: no tiene rol Coordinador/Soporte/Admin.
+        - ApiKeyHash: hash bcrypt de la API key del agente (nunca en claro).
+        - La API key en claro se muestra UNA sola vez al crear el agente.
+        - Agentes previstos: AGENTE_10.0.3.8, AGENTE_192.168.6.5
+---------------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.cat_agentes', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.cat_agentes
+    (
+        AgenteId        INT           NOT NULL IDENTITY(1,1),
+        Nombre          VARCHAR(50)   NOT NULL,          -- AGENTE_10.0.3.8 / AGENTE_192.168.6.5
+        ApiKeyHash      VARCHAR(255)  NOT NULL,          -- hash bcrypt de la API key
+        Activo          BIT           NOT NULL CONSTRAINT DF_cat_agentes_Activo DEFAULT (1),
+        FechaRegistro   DATETIME2(0)  NOT NULL CONSTRAINT DF_cat_agentes_FechaRegistro DEFAULT (SYSDATETIME()),
+        CONSTRAINT PK_cat_agentes PRIMARY KEY CLUSTERED (AgenteId),
+        CONSTRAINT UQ_cat_agentes_Nombre UNIQUE (Nombre)
     );
 END
 GO
@@ -534,32 +557,82 @@ IF OBJECT_ID(N'dbo.FK_transferencias_Incidencia', N'F') IS NULL
         ADD CONSTRAINT FK_transferencias_Incidencia FOREIGN KEY (IncidenciaId) REFERENCES dbo.incidencias (IncidenciaId);
 GO
 
-CREATE NONCLUSTERED INDEX IX_respaldos_ejecuciones_FechaEstado
-    ON dbo.respaldos_ejecuciones (FechaEjecucion, Estado) INCLUDE (BaseDatosId, TipoBackupEncontrado);
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_respaldos_ejecuciones_FechaEstado' AND object_id = OBJECT_ID(N'dbo.respaldos_ejecuciones')
+)
+    CREATE NONCLUSTERED INDEX IX_respaldos_ejecuciones_FechaEstado
+        ON dbo.respaldos_ejecuciones (FechaEjecucion, Estado) INCLUDE (BaseDatosId, TipoBackupEncontrado);
 GO
 
-CREATE NONCLUSTERED INDEX IX_respaldos_ejecuciones_Base
-    ON dbo.respaldos_ejecuciones (BaseDatosId, FechaEjecucion DESC);
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_respaldos_ejecuciones_Base' AND object_id = OBJECT_ID(N'dbo.respaldos_ejecuciones')
+)
+    CREATE NONCLUSTERED INDEX IX_respaldos_ejecuciones_Base
+        ON dbo.respaldos_ejecuciones (BaseDatosId, FechaEjecucion DESC);
 GO
 
-CREATE NONCLUSTERED INDEX IX_incidencias_Estado_Fecha
-    ON dbo.incidencias (Estado, FechaIncidencia DESC) INCLUDE (TipoIncidenciaId, ServidorId, BaseDatosId);
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_incidencias_Estado_Fecha' AND object_id = OBJECT_ID(N'dbo.incidencias')
+)
+    CREATE NONCLUSTERED INDEX IX_incidencias_Estado_Fecha
+        ON dbo.incidencias (Estado, FechaIncidencia DESC) INCLUDE (TipoIncidenciaId, ServidorId, BaseDatosId);
 GO
 
-CREATE NONCLUSTERED INDEX IX_incidencias_Base
-    ON dbo.incidencias (BaseDatosId, FechaIncidencia DESC);
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_incidencias_Base' AND object_id = OBJECT_ID(N'dbo.incidencias')
+)
+    CREATE NONCLUSTERED INDEX IX_incidencias_Base
+        ON dbo.incidencias (BaseDatosId, FechaIncidencia DESC);
 GO
 
-CREATE NONCLUSTERED INDEX IX_transferencias_Ejecucion
-    ON dbo.transferencias (EjecucionId, Estado);
+-- §26: barrera de idempotencia para incidencias AUTOMÁTICAS: solo una incidencia
+-- abierta por (Base, Fecha, SISTEMA). SQL Server no permite IN/OR en el predicado
+-- de un índice filtrado, por eso son dos (ABIERTA y EN_PROCESO).
+-- Si el INSERT choca con estos índices, la API reutiliza la existente (§35).
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'UQ_incidencias_SISTEMA_Abierta' AND object_id = OBJECT_ID(N'dbo.incidencias')
+)
+    CREATE UNIQUE NONCLUSTERED INDEX UQ_incidencias_SISTEMA_Abierta
+        ON dbo.incidencias (BaseDatosId, FechaIncidencia, DetectadaPor)
+        WHERE DetectadaPor = 'SISTEMA' AND Estado = 'ABIERTA';
 GO
 
-CREATE NONCLUSTERED INDEX IX_historial_Entidad
-    ON dbo.historial (Entidad, EntidadId, FechaEvento DESC);
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'UQ_incidencias_SISTEMA_EnProceso' AND object_id = OBJECT_ID(N'dbo.incidencias')
+)
+    CREATE UNIQUE NONCLUSTERED INDEX UQ_incidencias_SISTEMA_EnProceso
+        ON dbo.incidencias (BaseDatosId, FechaIncidencia, DetectadaPor)
+        WHERE DetectadaPor = 'SISTEMA' AND Estado = 'EN_PROCESO';
 GO
 
-CREATE NONCLUSTERED INDEX IX_historial_Fecha
-    ON dbo.historial (FechaEvento DESC);
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_transferencias_Ejecucion' AND object_id = OBJECT_ID(N'dbo.transferencias')
+)
+    CREATE NONCLUSTERED INDEX IX_transferencias_Ejecucion
+        ON dbo.transferencias (EjecucionId, Estado);
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_historial_Entidad' AND object_id = OBJECT_ID(N'dbo.historial')
+)
+    CREATE NONCLUSTERED INDEX IX_historial_Entidad
+        ON dbo.historial (Entidad, EntidadId, FechaEvento DESC);
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_historial_Fecha' AND object_id = OBJECT_ID(N'dbo.historial')
+)
+    CREATE NONCLUSTERED INDEX IX_historial_Fecha
+        ON dbo.historial (FechaEvento DESC);
 GO
 
 -- ============================================================================
@@ -656,7 +729,7 @@ BEGIN
 END
 GO
 
--- 6.6 Ejemplo RESTO (§9) — DWCalzamoda (las 41 bases se cargan en data/seed_bases_res_to.sql)
+-- 6.6 Ejemplo RESTO (§9) — DWCalzamoda (las otras 40 bases se insertan en 6.8)
 IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'DWCalzamoda')
 BEGIN
     DECLARE @GrupoRestoId INT = (SELECT GrupoRespaldoId FROM dbo.cat_grupos_respaldo WHERE Codigo = 'SQL_RESTO');
@@ -687,6 +760,186 @@ BEGIN
 END
 GO
 
+-- ============================================================================
+-- 6.8 Las 40 bases RESTO restantes (§9) — inventario de respaldos confirmado
+--     (DWCalzamoda ya se insertó en 6.6; aquí SOLO las otras 40).
+--     Cada base con IF NOT EXISTS por nombre para mantener la idempotencia
+--     (§35), igual que el resto del script.
+--     Patrón §9 del grupo: Lun-Sáb Diferencial / Dom Full -> predeterminado
+--     DIFERENCIAL (los horarios por día se registran en horarios_esperados).
+--     Al final: rutas_origen_destino por base (§5) con el mismo patrón de
+--     carpeta que usó DWCalzamoda + subcarpeta {NombreBase}, y
+--     EliminarOrigenTrasTransferencia=1 (todo en un solo batch: las variables
+--     NO sobreviven a un GO, por eso no hay GO entre los INSERTs).
+-- ============================================================================
+DECLARE @GrupoRestoId INT = (SELECT GrupoRespaldoId FROM dbo.cat_grupos_respaldo WHERE Codigo = 'SQL_RESTO');
+DECLARE @Servidor38Id INT = (SELECT ServidorId     FROM dbo.cat_servidores WHERE Nombre = '10.0.3.8');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'AUDITORIA_DB')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'AUDITORIA_DB', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'BDAgencias')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'BDAgencias', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'BDArtus')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'BDArtus', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'CAJA_AHORROS')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'CAJA_AHORROS', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'CERO_PAPEL')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'CERO_PAPEL', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'CincoPinos')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'CincoPinos', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'CincoPinos_DB')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'CincoPinos_DB', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'CiudadHidalgo')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'CiudadHidalgo', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'COMISIONES_GRAL')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'COMISIONES_GRAL', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'CONCILIACIONES')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'CONCILIACIONES', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'CONCILIACIONES_CFDI')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'CONCILIACIONES_CFDI', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'CONCILIACIONES_CLZ')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'CONCILIACIONES_CLZ', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'CZM_COTIZACIONES')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'CZM_COTIZACIONES', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'DBChatAPI')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'DBChatAPI', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'DBCONCILIADOR_BCO')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'DBCONCILIADOR_BCO', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'DBCONCILIADOR_CFDI')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'DBCONCILIADOR_CFDI', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'DBFinanza')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'DBFinanza', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'DBGRAPI')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'DBGRAPI', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'DBRRHH')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'DBRRHH', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'DBTelemarketing')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'DBTelemarketing', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'DB_PROSUR_SERVICIOS')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'DB_PROSUR_SERVICIOS', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'DWAutomotrizBI')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'DWAutomotrizBI', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'DWCafi')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'DWCafi', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'DWCincoPinos')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'DWCincoPinos', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'DWPinotepa')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'DWPinotepa', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'FIDEICOMISO_PALENQUE')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'FIDEICOMISO_PALENQUE', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'Insumos')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'Insumos', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'LineasTelefonicas')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'LineasTelefonicas', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'Pinotepa')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'Pinotepa', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'RIOVINYL')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'RIOVINYL', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'RIOVINYL_BD')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'RIOVINYL_BD', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'SAT_EFOS_Sync_DB')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'SAT_EFOS_Sync_DB', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'SEGUIMIENTO_MINUTAS')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'SEGUIMIENTO_MINUTAS', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'SEGUIMIENTO_OBJETIVOS')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'SEGUIMIENTO_OBJETIVOS', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'SEGURIDAD_PROSUR')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'SEGURIDAD_PROSUR', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'SEGUROS')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'SEGUROS', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'servicedesk10_5')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'servicedesk10_5', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'SIE_servicedskclz')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'SIE_servicedskclz', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'SIE_FORTIA_BD')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'SIE_FORTIA_BD', N'SQL', N'DIFERENCIAL');
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'SIE_FORTIA_REP')
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoRestoId, @Servidor38Id, N'SIE_FORTIA_REP', N'SQL', N'DIFERENCIAL');
+
+    -- Rutas (§5): G:\TempRespSQLServer -> \\192.168.6.9\RespaldosBD2020\RESPALDOS SQL\SQL RESTO BASES\{NombreBase}\
+    -- (mismo patrón de carpeta que usó DWCalzamoda, con subcarpeta por base).
+    DECLARE @NASRestoId INT = (SELECT ServidorId FROM dbo.cat_servidores WHERE Nombre = '192.168.6.9');
+    INSERT INTO dbo.rutas_origen_destino (BaseDatosId, RutaOrigen, RutaDestino, ServidorDestinoId, EliminarOrigenTrasTransferencia)
+    SELECT b.BaseDatosId,
+           N'G:\TempRespSQLServer',
+           N'\\192.168.6.9\RespaldosBD2020\RESPALDOS SQL\SQL RESTO BASES\' + b.NombreBase + N'\',
+           @NASRestoId,
+           1
+    FROM dbo.cat_bases_datos b
+    JOIN dbo.cat_grupos_respaldo g ON g.GrupoRespaldoId = b.GrupoRespaldoId
+    WHERE g.Codigo = 'SQL_RESTO'
+      AND b.NombreBase IN (N'AUDITORIA_DB', N'BDAgencias', N'BDArtus', N'CAJA_AHORROS', N'CERO_PAPEL',
+                           N'CincoPinos', N'CincoPinos_DB', N'CiudadHidalgo', N'COMISIONES_GRAL', N'CONCILIACIONES',
+                           N'CONCILIACIONES_CFDI', N'CONCILIACIONES_CLZ', N'CZM_COTIZACIONES', N'DBChatAPI', N'DBCONCILIADOR_BCO',
+                           N'DBCONCILIADOR_CFDI', N'DBFinanza', N'DBGRAPI', N'DBRRHH', N'DBTelemarketing',
+                           N'DB_PROSUR_SERVICIOS', N'DWAutomotrizBI', N'DWCafi', N'DWCincoPinos', N'DWPinotepa',
+                           N'FIDEICOMISO_PALENQUE', N'Insumos', N'LineasTelefonicas', N'Pinotepa', N'RIOVINYL',
+                           N'RIOVINYL_BD', N'SAT_EFOS_Sync_DB', N'SEGUIMIENTO_MINUTAS', N'SEGUIMIENTO_OBJETIVOS', N'SEGURIDAD_PROSUR',
+                           N'SEGUROS', N'servicedesk10_5', N'SIE_servicedskclz', N'SIE_FORTIA_BD', N'SIE_FORTIA_REP')
+      AND NOT EXISTS (SELECT 1 FROM dbo.rutas_origen_destino r WHERE r.BaseDatosId = b.BaseDatosId);
+
+    -- Horarios (§9): Lun-Sáb (1-6) DIFERENCIAL / Dom (7) FULL, 22:00,
+    -- tolerancia 180 (misma ventana que DWCalzamoda). 40 bases x 7 dias = 280.
+    -- Idempotente: solo para bases sin ningún horario registrado aún.
+    INSERT INTO dbo.horarios_esperados (BaseDatosId, DiaSemana, DiaAplica, TipoBackupEsperado, HoraEsperada, ToleranciaMinutos)
+    SELECT b.BaseDatosId, d.DiaSemana, 1,
+           CASE WHEN d.DiaSemana = 7 THEN 'FULL' ELSE 'DIFERENCIAL' END,
+           CAST('22:00' AS TIME(0)), 180
+    FROM dbo.cat_bases_datos b
+    JOIN dbo.cat_grupos_respaldo g ON g.GrupoRespaldoId = b.GrupoRespaldoId
+    CROSS JOIN (VALUES (1),(2),(3),(4),(5),(6),(7)) AS d(DiaSemana)
+    WHERE g.Codigo = 'SQL_RESTO'
+      AND b.NombreBase IN (N'AUDITORIA_DB', N'BDAgencias', N'BDArtus', N'CAJA_AHORROS', N'CERO_PAPEL',
+                           N'CincoPinos', N'CincoPinos_DB', N'CiudadHidalgo', N'COMISIONES_GRAL', N'CONCILIACIONES',
+                           N'CONCILIACIONES_CFDI', N'CONCILIACIONES_CLZ', N'CZM_COTIZACIONES', N'DBChatAPI', N'DBCONCILIADOR_BCO',
+                           N'DBCONCILIADOR_CFDI', N'DBFinanza', N'DBGRAPI', N'DBRRHH', N'DBTelemarketing',
+                           N'DB_PROSUR_SERVICIOS', N'DWAutomotrizBI', N'DWCafi', N'DWCincoPinos', N'DWPinotepa',
+                           N'FIDEICOMISO_PALENQUE', N'Insumos', N'LineasTelefonicas', N'Pinotepa', N'RIOVINYL',
+                           N'RIOVINYL_BD', N'SAT_EFOS_Sync_DB', N'SEGUIMIENTO_MINUTAS', N'SEGUIMIENTO_OBJETIVOS', N'SEGURIDAD_PROSUR',
+                           N'SEGUROS', N'servicedesk10_5', N'SIE_servicedskclz', N'SIE_FORTIA_BD', N'SIE_FORTIA_REP')
+      AND NOT EXISTS (SELECT 1 FROM dbo.horarios_esperados h WHERE h.BaseDatosId = b.BaseDatosId);
+GO
+
 -- 6.7 Reglas de retención para grupos restantes (§31)
 IF NOT EXISTS (SELECT 1 FROM dbo.reglas_retencion r JOIN dbo.cat_grupos_respaldo g ON r.GrupoRespaldoId = g.GrupoRespaldoId WHERE g.Codigo IN ('MONGO','MICROSIP','MERCALTOS'))
 BEGIN
@@ -702,7 +955,6 @@ GO
    NOTAS FINALES
 
    Pendientes de fases posteriores (no bloquean este esquema):
-     - data/seed_bases_res_to.sql   : carga de las 41 bases RESTO + horarios.
      - catálogos Jobs, Archivos de confianza y Actividades manuales (Fase 7/8).
      - Mecanismo de auditoría por triggers (hoy se registra vía historial desde la API).
 

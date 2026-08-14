@@ -22,6 +22,14 @@ Requiere SQL Server 2019 (producción en `10.0.3.8`). El script es idempotente (
 └────────────────────┘      │ Tipo (AWS/LOCAL/NAS)│
                             └──────────┬──────────┘
 ┌────────────────────┐                 │
+│ cat_agentes (§8)   │                 │
+│────────────────────│   Máquinas, NO personas:
+│ AgenteId PK        │   AGENTE_10.0.3.8, etc.
+│ Nombre UNIQUE      │   ApiKeyHash = bcrypt,
+│ ApiKeyHash         │   la key en claro se
+│ Activo             │   muestra UNA sola vez.
+└────────────────────┘
+┌────────────────────┐                 │
 │ cat_usuarios       │                 │
 │────────────────────│                 │
 │ UsuarioId PK       │                 │
@@ -110,6 +118,8 @@ Requiere SQL Server 2019 (producción en `10.0.3.8`). El script es idempotente (
 
 ## Pendientes de fases posteriores (no bloquean este esquema)
 
-- `data/seed_bases_res_to.sql` — catálogo de las 41 bases RESTO (inventario exacto por confirmar).
+- Rotación/regeneración de API key de agentes (hoy: crear y borrar/recrear).
+
+- `data/seed_bases_res_to.sql` — ya no es necesario: las 40 bases RESTO, sus rutas (`rutas_origen_destino`) y horarios (`horarios_esperados`) se cargan en el script principal, sección 6.8.
 - Catálogos de Jobs, Archivos de confianza y Actividades manuales (Fases 7–8).
 - Triggers de auditoría (hoy el historial se registra desde la API).

@@ -14,6 +14,7 @@ from app.api.v1 import (
     respaldos,
     roles,
     servidores,
+    transferencias,
     usuarios,
 )
 
@@ -28,6 +29,7 @@ api_router.include_router(agentes.router)
 api_router.include_router(ingesta.router)
 api_router.include_router(bases_datos.router)
 api_router.include_router(respaldos.router)
+api_router.include_router(transferencias.router)
 api_router.include_router(incidencias.router)
 api_router.include_router(alertas.router)
 api_router.include_router(historial.router)
