@@ -71,7 +71,14 @@ class NasTransferWorker:
         return origen / item["archivo_encontrado"]
 
     def _ruta_destino(self, item: dict) -> Path:
-        destino = Path(self._destino_override or item["ruta_destino"])
+        if self._destino_override:
+            # Simulación local: el override es la RAÍZ del NAS; se replica la
+            # subcarpeta {NombreBase} del catálogo (igual que producción, donde
+            # la ruta destino ya termina en ...\{NombreBase}\). Así la prueba
+            # local no mezcla rutas entre bases con nombres parecidos.
+            destino = Path(self._destino_override) / item["nombre_base"]
+        else:
+            destino = Path(item["ruta_destino"])
         return destino / item["archivo_encontrado"]
 
     @staticmethod

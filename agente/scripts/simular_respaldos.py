@@ -1,4 +1,6 @@
-"""Genera archivos .bak FALSOS en una carpeta local para SIMULAR G:\\TempRespSQLServer.
+"""Genera archivos FALSOS en una carpeta local para SIMULAR las carpetas origen:
+- SQL:   {Base}_{YYYYMMDD}_{DIF|FULL}.bak  (simula G:\\TempRespSQLServer)
+- MONGO: backup_{YYYYMMDD}_{HHMM}.rar      (simula G:\\BackupMongo\\BackupMongoTemp)
 
 El catálogo de bases se lee del backend (mismo endpoint que usa el agente), así
 la simulación siempre está alineada con la configuración real (§35).
@@ -7,6 +9,8 @@ Uso:
   python scripts/simular_respaldos.py
   python scripts/simular_respaldos.py --omitir DWCalzamoda            # simula faltante -> ERROR
   python scripts/simular_respaldos.py --atrasado PROSUR_PRIME_BLINK   # mtime fuera de ventana -> ADVERTENCIA
+  python scripts/simular_respaldos.py --omitir MONGO_BACKUP_DIARIO    # dump Mongo faltante -> ERROR
+  python scripts/simular_respaldos.py --atrasado MONGO_BACKUP_DIARIO  # dump Mongo fuera de hora -> ADVERTENCIA
   python scripts/simular_respaldos.py --fecha 2026-08-11 --dir C:\\temp\\sim
 """
 import argparse
@@ -39,19 +43,19 @@ def main() -> int:
 
     api = ApiClient(API_BASE_URL, AGENT_API_KEY)
     configuracion = api.get_configuracion()
-    bases = [b for b in configuracion["bases"] if b["tipo_fuente"] == "SQL"]
+    bases = [b for b in configuracion["bases"] if b["tipo_fuente"] in ("SQL", "MONGO")]
     if not bases:
-        print("No hay bases SQL en el catálogo del backend.")
+        print("No hay bases SQL/MONGO en el catálogo del backend.")
         return 2
 
-    # Limpia .bak previos: corridas con fechas distintas no deben acumular
+    # Limpia .bak/.rar previos: corridas con fechas distintas no deben acumular
     # archivos viejos que confundan al checker (falso ADVERTENCIA/OK).
     carpeta.mkdir(parents=True, exist_ok=True)
-    viejos = list(carpeta.glob("*.bak"))
+    viejos = list(carpeta.glob("*.bak")) + list(carpeta.glob("*.rar"))
     for viejo in viejos:
         viejo.unlink()
     if viejos:
-        print(f"Limpios {len(viejos)} archivos .bak previos de {carpeta}\n")
+        print(f"Limpios {len(viejos)} archivos .bak/.rar previos de {carpeta}\n")
     creados = 0
     print(f"Simulando respaldos de {fecha.isoformat()} en {carpeta}\n")
     for base in bases:
@@ -65,20 +69,25 @@ def main() -> int:
             None,
         )
         tipo = horario["tipo_backup_esperado"] if horario else base["tipo_backup_predeterminado"]
-        sufijo_tipo = "DIF" if tipo == "DIFERENCIAL" else "FULL"
-        nombre_archivo = f"{nombre}_{fecha.strftime('%Y%m%d')}_{sufijo_tipo}.bak"
+        atrasada = nombre.upper() in atrasados
+
+        if base["tipo_fuente"] == "MONGO":
+            # Patrón Mongo: backup_YYYYMMDD_HHMM.rar — la hora va en el NOMBRE,
+            # no en el mtime. El dump esperado es a la HoraEsperada (23:59).
+            hhmm = "0900" if atrasada else (horario["hora_esperada"].replace(":", "") if horario else "2359")
+            nombre_archivo = f"backup_{fecha.strftime('%Y%m%d')}_{hhmm}.rar"
+            mtime = datetime(fecha.year, fecha.month, fecha.day, int(hhmm[:2]), int(hhmm[2:]))
+        else:
+            sufijo_tipo = "DIF" if tipo == "DIFERENCIAL" else "FULL"
+            nombre_archivo = f"{nombre}_{fecha.strftime('%Y%m%d')}_{sufijo_tipo}.bak"
+            # SQL: el mtime lleva la hora de generación (09:00 atrasado, 22:05 OK).
+            mtime = datetime(fecha.year, fecha.month, fecha.day, 9, 0) if atrasada else datetime(fecha.year, fecha.month, fecha.day, 22, 5)
         ruta = carpeta / nombre_archivo
 
         ruta.write_bytes(os.urandom(random.randint(1_000_000, 5_000_000)))  # 1-5 MB falsos
-
-        if nombre.upper() in atrasados:
-            mtime = datetime(fecha.year, fecha.month, fecha.day, 9, 0)  # fuera de la ventana (22:00±3h)
-            marca = "FUERA de ventana (09:00) -> ADVERTENCIA"
-        else:
-            mtime = datetime(fecha.year, fecha.month, fecha.day, 22, 5)  # dentro de la ventana -> OK
-            marca = "dentro de ventana (22:05) -> OK"
         os.utime(ruta, (mtime.timestamp(), mtime.timestamp()))
 
+        marca = "FUERA de ventana -> ADVERTENCIA" if atrasada else "dentro de ventana -> OK"
         print(f"  [creado] {nombre_archivo}  ({ruta.stat().st_size // 1024} KB, {marca})")
         creados += 1
 

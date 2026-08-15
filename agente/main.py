@@ -1,10 +1,11 @@
-"""Agente 10.0.3.8 — SQL Backup Checker (Fase 4, §9).
+"""Agente 10.0.3.8 — Backup Checker SQL + Mongo (Fase 4, §9).
 
 Ciclo:
   1. Lee su configuración del backend (GET /api/v1/ingesta/configuracion,
      autenticado con X-Agent-Key) — nada quemado en código (§35).
-  2. Para cada base SQL: valida la carpeta origen (existencia, tamaño, tipo,
-     ventana horaria esperada).
+  2. Para cada base: valida la carpeta origen (existencia, tamaño, tipo,
+     ventana horaria esperada). SQL valida archivos {Base}_{fecha}_{TIPO}.bak;
+     Mongo valida dumps backup_YYYYMMDD_HHMM.rar (§9 Mongo).
   3. Reporta cada validación (POST /api/v1/respaldos/ejecuciones, idempotente).
      El backend crea la incidencia automática si el estado es ERROR (§26).
 
@@ -22,6 +23,7 @@ import sys
 from datetime import date
 
 from api_client import ApiClient, ApiError
+from checkers.mongo_backup import MongoBackupChecker
 from checkers.sql_backup import SqlBackupChecker
 from config import AGENT_API_KEY, AGENT_FECHA, AGENT_ORIGEN_DIR, API_BASE_URL
 from logger import get_logger
@@ -38,7 +40,7 @@ def _fecha_operativa(arg_fecha: str | None) -> date:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Agente 10.0.3.8 — SQL Backup Checker")
+    parser = argparse.ArgumentParser(description="Agente 10.0.3.8 — Backup Checker SQL + Mongo")
     parser.add_argument("--fecha", help="Fecha operativa YYYY-MM-DD (defecto: hoy)")
     parser.add_argument("--origen", help="Override de la carpeta origen (simulación local)")
     parser.add_argument("--solo", help="Validar solo esta base (nombre exacto)")
@@ -51,7 +53,7 @@ def main() -> int:
 
     fecha = _fecha_operativa(args.fecha)
     logger.info("=" * 62)
-    logger.info("AGENTE 10.0.3.8 — SQL Backup Checker | fecha operativa %s", fecha.isoformat())
+    logger.info("AGENTE 10.0.3.8 — Backup Checker SQL + Mongo | fecha operativa %s", fecha.isoformat())
     logger.info("Backend: %s", API_BASE_URL)
 
     api = ApiClient(API_BASE_URL, AGENT_API_KEY)
@@ -65,20 +67,24 @@ def main() -> int:
     # TODAS las bases SQL (aun con --solo) alimentan la resolución de colisiones
     # de prefijo del checker (PROSUR_PRIME vs PROSUR_PRIME_DATA).
     bases_sql = [b for b in configuracion["bases"] if b["tipo_fuente"] == "SQL"]
+    bases_mongo = [b for b in configuracion["bases"] if b["tipo_fuente"] == "MONGO"]
     nombres_bases = tuple(b["nombre_base"] for b in bases_sql)
-    bases = bases_sql
+
+    bases = bases_sql + bases_mongo
     if args.solo:
-        bases = [b for b in bases_sql if b["nombre_base"].lower() == args.solo.lower()]
+        bases = [b for b in bases if b["nombre_base"].lower() == args.solo.lower()]
 
-    logger.info("Bases SQL a validar: %s", ", ".join(b["nombre_base"] for b in bases) or "(ninguna)")
+    logger.info("Bases a validar: %s", ", ".join(b["nombre_base"] for b in bases) or "(ninguna)")
 
-    checker = SqlBackupChecker(
+    checker_sql = SqlBackupChecker(
         origen_override=args.origen or AGENT_ORIGEN_DIR,
         nombres_bases=nombres_bases,
     )
+    checker_mongo = MongoBackupChecker(origen_override=args.origen or AGENT_ORIGEN_DIR)
     conteo = {"OK": 0, "ADVERTENCIA": 0, "ERROR": 0, "NO_APLICA": 0}
 
     for base in bases:
+        checker = checker_mongo if base["tipo_fuente"] == "MONGO" else checker_sql
         payload = checker.check(base, fecha)
         logger.info("[%s] %s", payload["estado"], base["nombre_base"])
         if payload.get("detalle"):

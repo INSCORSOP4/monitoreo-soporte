@@ -940,6 +940,40 @@ IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos WHERE NombreBase = 'SIE_FORTIA_
       AND NOT EXISTS (SELECT 1 FROM dbo.horarios_esperados h WHERE h.BaseDatosId = b.BaseDatosId);
 GO
 
+-- ============================================================================
+-- 6.9 Mongo (§10) — MONGO_BACKUP_DIARIO: 1 dump completo diario (.zip).
+--     No aplica distinción Full/Diferencial -> TipoBackupPredeterminado='FULL'.
+--     Mismo patrón de la 6.8: base con IF NOT EXISTS por nombre (§35) y
+--     rutas/horarios con guard NOT EXISTS independiente, para que una
+--     re-ejecución recupere lo que falte aunque la base ya exista.
+-- ============================================================================
+DECLARE @GrupoMongoId    INT = (SELECT GrupoRespaldoId FROM dbo.cat_grupos_respaldo WHERE Codigo = 'MONGO');
+DECLARE @ServidorMongoId INT = (SELECT ServidorId      FROM dbo.cat_servidores WHERE Nombre = '10.0.3.8');
+DECLARE @NASMongoId      INT = (SELECT ServidorId      FROM dbo.cat_servidores WHERE Nombre = '192.168.6.9');
+DECLARE @BaseMongoId     INT = (SELECT BaseDatosId FROM dbo.cat_bases_datos WHERE NombreBase = 'MONGO_BACKUP_DIARIO');
+
+IF @BaseMongoId IS NULL
+BEGIN
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoMongoId, @ServidorMongoId, N'MONGO_BACKUP_DIARIO', N'MONGO', N'FULL');
+    SET @BaseMongoId = SCOPE_IDENTITY();
+END
+
+-- Rutas (§5): G:\BackupMongo\BackupMongoTemp -> \\192.168.6.9\RespaldosBD2020\RESPALDOS MONGO\MONGO_BACKUP_DIARIO\
+INSERT INTO dbo.rutas_origen_destino (BaseDatosId, RutaOrigen, RutaDestino, ServidorDestinoId, EliminarOrigenTrasTransferencia)
+SELECT @BaseMongoId,
+       N'G:\BackupMongo\BackupMongoTemp',
+       N'\\192.168.6.9\RespaldosBD2020\RESPALDOS MONGO\MONGO_BACKUP_DIARIO\',
+       @NASMongoId, 1
+WHERE NOT EXISTS (SELECT 1 FROM dbo.rutas_origen_destino r WHERE r.BaseDatosId = @BaseMongoId);
+
+-- Horarios (§9): dump completo diario -> FULL los 7 días, 23:59, tolerancia 180 (7 filas)
+INSERT INTO dbo.horarios_esperados (BaseDatosId, DiaSemana, DiaAplica, TipoBackupEsperado, HoraEsperada, ToleranciaMinutos)
+SELECT @BaseMongoId, d.DiaSemana, 1, N'FULL', CAST('23:59' AS TIME(0)), 180
+FROM (VALUES (1),(2),(3),(4),(5),(6),(7)) AS d(DiaSemana)
+WHERE NOT EXISTS (SELECT 1 FROM dbo.horarios_esperados h WHERE h.BaseDatosId = @BaseMongoId);
+GO
+
 -- 6.7 Reglas de retención para grupos restantes (§31)
 IF NOT EXISTS (SELECT 1 FROM dbo.reglas_retencion r JOIN dbo.cat_grupos_respaldo g ON r.GrupoRespaldoId = g.GrupoRespaldoId WHERE g.Codigo IN ('MONGO','MICROSIP','MERCALTOS'))
 BEGIN
