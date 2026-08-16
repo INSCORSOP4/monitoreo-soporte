@@ -13,6 +13,7 @@ from app.api.v1 import (
     incidencias,
     ingesta,
     respaldos,
+    responsables,
     roles,
     servidores,
     transferencias,
@@ -33,6 +34,7 @@ api_router.include_router(respaldos.router)
 api_router.include_router(transferencias.router)
 api_router.include_router(discos.router)
 api_router.include_router(incidencias.router)
+api_router.include_router(responsables.router)
 api_router.include_router(alertas.router)
 api_router.include_router(historial.router)
 api_router.include_router(dashboard.router)

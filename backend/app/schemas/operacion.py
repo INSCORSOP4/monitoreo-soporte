@@ -117,3 +117,25 @@ class HistorialOut(BaseModel):
     entidad_id: int | None = None
     tipo_evento: str
     descripcion: str | None = None
+
+
+class ResponsableDiaAsignarCreate(BaseModel):
+    """Asignación MANUAL del responsable de una fecha (§21).
+
+    Solo Coordinador/Administrador vía PUT /responsables-dia/{fecha}. Una vez
+    marcada MANUAL, la lógica automática (lazy, solo días hábiles) nunca la
+    sobrescribe: la fila ya existe y la rotación solo actúa cuando NO hay fila.
+    """
+
+    usuario_id: int = Field(gt=0)
+
+
+class ResponsableDiaOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    fecha: date
+    usuario_id: int
+    origen_asignacion: str  # AUTO / MANUAL
+    usuario_reasigno_id: int | None = None
+    fecha_asignacion: datetime
+    nombre: str | None = None  # join a cat_usuarios para el dashboard

@@ -11,7 +11,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.models import CatBaseDatos, CatServidor, CatTipoIncidencia, Incidencia, ResponsableDia
+from app.models import CatBaseDatos, CatServidor, CatTipoIncidencia, Incidencia
+from app.services.responsables_service import obtener_o_crear_responsable_dia
 
 logger = get_logger(__name__)
 
@@ -39,19 +40,16 @@ def _tipo_incidencia_por_codigo(db: Session, codigo: str) -> int:
 
 
 def _responsable_dia(db: Session, fecha: date) -> int | None:
-    """Responsable del día vigente (§21).
+    """Responsable del día vigente (§21), con asignación automática por rotación.
 
-    Si no hay asignación registrada en responsables_dia para la fecha, devuelve
-    None: la incidencia se crea igualmente (ResponsableDiaId NULL) y el equipo
-    la asigna en la revisión. Nunca bloquea la ingesta.
+    Delega en responsables_service, que concentra la política completa: solo
+    días hábiles (fin de semana -> NULL sin intentar rotación, con warning),
+    fila existente respetada (AUTO o MANUAL), y si falta se calcula el siguiente
+    del ciclo (rotacion) y se registra la asignación AUTO. Sin participantes
+    activos devuelve None: la incidencia se crea igualmente (ResponsableDiaId
+    NULL) y el equipo la asigna en la revisión. Nunca bloquea la ingesta.
     """
-    responsable = db.scalar(select(ResponsableDia).where(ResponsableDia.fecha == fecha))
-    if responsable is None:
-        logger.warning(
-            "No hay responsable del día registrado para %s — incidencia sin ResponsableDiaId", fecha
-        )
-        return None
-    return responsable.usuario_id
+    return obtener_o_crear_responsable_dia(db, fecha)
 
 
 def crear_o_reutilizar_incidencia_sistema(

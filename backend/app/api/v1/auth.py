@@ -25,7 +25,15 @@ def login(body: LoginRequest) -> LoginResponse:
 
     token = create_access_token(
         subject=usuario["usuario"],
-        extra_claims={"extra": {"nombre": usuario.get("nombre"), "rol": usuario.get("rol")}},
+        extra_claims={
+            "extra": {
+                "nombre": usuario.get("nombre"),
+                "rol": usuario.get("rol"),
+                # usuario_id del catálogo: lo usa el backend para registrar quién
+                # reasignó manualmente (responsables_dia.UsuarioReasignoId, §21).
+                "usuario_id": usuario.get("usuario_id"),
+            }
+        },
     )
     logger.info("Login exitoso: %s", usuario["usuario"])
     return LoginResponse(

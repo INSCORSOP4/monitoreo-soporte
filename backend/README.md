@@ -79,6 +79,8 @@ backend/
 | POST | `/api/v1/respaldos/ejecuciones` | Ingesta del agente (§8): reporta validación diaria por base (idempotente por Base+Fecha). Si `estado=ERROR`, crea/reutiliza la incidencia automática `SISTEMA` con el responsable del día (§26) |
 | GET | `/api/v1/respaldos/resumen?fecha=2026-08-08` | Resumen por grupo (bitácora §24) |
 | GET | `/api/v1/dashboard/resumen?fecha=2026-08-08` | Indicadores del dashboard (§25) |
+| GET | `/api/v1/responsables-dia/hoy` | Responsable del día para el dashboard (§21): dispara la asignación automática por rotación si aún no existe (solo días hábiles) |
+| PUT | `/api/v1/responsables-dia/{fecha}` | Asignación MANUAL del responsable (solo COORDINADOR/ADMINISTRADOR, §21): fija UsuarioId con `OrigenAsignacion='MANUAL'` y registra `UsuarioReasignoId`. Una vez MANUAL, la lógica automática nunca lo sobrescribe |
 | GET | `/api/v1/incidencias?estado=ABIERTA` | Incidencias abiertas (§26) |
 | GET | `/api/v1/historial?entidad=incidencias` | Historial de auditoría (§27) |
 
@@ -98,7 +100,8 @@ La ingesta del agente solo reporta hechos; las incidencias las genera el backend
 
 - `POST /respaldos/ejecuciones` con `estado=ERROR` → crea la incidencia con `DetectadaPor='SISTEMA'`, tipo según el grupo de la base (`RESPALDO_SQL/MONGO/MICROSIP/MERCALTOS`) y `ResponsableDiaId` = responsable del día vigente (`responsables_dia`, §21).
 - Idempotente: reenvíos del mismo ERROR reutilizan la incidencia abierta de (base, fecha); si el estado vuelve a `OK`, la incidencia **no** se cierra automáticamente — la cierra Soporte al registrar la intervención (§26).
-- Si no hay responsable asignado para la fecha, la incidencia se crea con `ResponsableDiaId NULL` (queda para la revisión) y se registra un warning en el log.
+- Si no hay responsable para la fecha, se asigna automáticamente por **rotación** (`rotacion`, §21): se toma el último `OrigenAsignacion='AUTO'` anterior a la fecha, se avanza al siguiente `Orden` activo (salta `Suspendido=1` y usuarios `Activo=0`, da la vuelta al final) y se registra la fila AUTO. Sin asignación previa se empieza en `Orden=1`. Si no hay participantes activos, la incidencia se crea con `ResponsableDiaId NULL` (queda para la revisión) y se registra un warning.
+- La asignación automática es **lazy y solo en días hábiles**: en fin de semana (sáb/dom) no se intenta la rotación — la incidencia queda con `ResponsableDiaId NULL` y el log registra el aviso; el responsable se calcula bajo demanda (al primer ERROR del día) y se guarda con `OrigenAsignacion='AUTO'` antes de usarse.
 
 ## TLS / HTTPS (§38)
 
