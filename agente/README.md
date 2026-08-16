@@ -61,7 +61,7 @@ idéntico y cada agente solo difiere en su `.env` y en sus `checkers/`:
 | Proyecto | `AGENT_TIPO_FUENTES` | Checkers que trae | Bases que valida |
 |---|---|---|---|
 | `agente/` (10.0.3.8) | `SQL,MONGO` | `sql_backup.py`, `mongo_backup.py` | 44 SQL + 1 Mongo |
-| `agente_6_5/` (192.168.6.5) | `MICROSIP,MERCALTOS` | `microsip_backup.py` | 1 Microsip (Mercaltos cuando exista su checker) |
+| `agente_6_5/` (192.168.6.5) | `MICROSIP,MERCALTOS` | `microsip_backup.py`, `mercaltos_backup.py` | 1 Microsip + 1 Mercaltos |
 
 ## Correr en local (simulación)
 

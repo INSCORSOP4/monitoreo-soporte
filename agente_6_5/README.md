@@ -40,10 +40,12 @@ agente_6_5/
 ├── logger.py                # Logging estructurado (§35) (IDÉNTICO a agente/)
 ├── api_client.py            # Cliente HTTP (urllib, reintentos §13) (IDÉNTICO a agente/)
 ├── checkers/
-│   ├── __init__.py          # Factory crear_checker() — ESTE proyecto: solo MICROSIP
-│   └── microsip_backup.py   # Checker Microsip (§10) — el que valida este agente
+│   ├── __init__.py          # Factory crear_checker() — ESTE proyecto: MICROSIP + MERCALTOS
+│   ├── microsip_backup.py   # Checker Microsip (§10)
+│   └── mercaltos_backup.py  # Checker Mercaltos (§10) — patrón con espacios y ';',
+│                            #   verifica accesibilidad de H:\ (Google Drive)
 ├── scripts/
-│   └── simular_respaldos.py # Genera el .7z falso (según AGENT_TIPO_FUENTES)
+│   └── simular_respaldos.py # Genera los .7z falsos (según AGENT_TIPO_FUENTES)
 ├── .env                     # Configuración LOCAL (no subir, §35)
 ├── .env.example             # Plantilla de configuración
 └── requirements.txt         # Nota: solo stdlib, sin pip install
@@ -66,7 +68,7 @@ idéntico y cada agente solo difiere en su `.env` y en sus `checkers/`:
 | Proyecto | `AGENT_TIPO_FUENTES` | Checkers que trae | Bases que valida |
 |---|---|---|---|
 | `agente/` (10.0.3.8) | `SQL,MONGO` | `sql_backup.py`, `mongo_backup.py` | 44 SQL + 1 Mongo |
-| `agente_6_5/` (192.168.6.5) | `MICROSIP,MERCALTOS` | `microsip_backup.py` | 1 Microsip (Mercaltos cuando exista su checker) |
+| `agente_6_5/` (192.168.6.5) | `MICROSIP,MERCALTOS` | `microsip_backup.py`, `mercaltos_backup.py` | 1 Microsip + 1 Mercaltos |
 
 ## Correr en local (simulación)
 

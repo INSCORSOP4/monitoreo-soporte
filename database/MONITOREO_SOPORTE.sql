@@ -1009,6 +1009,43 @@ SELECT @BaseMicrosipId, d.DiaSemana, 1, N'FULL', CAST('22:00' AS TIME(0)), 180
 FROM (VALUES (1),(2),(3),(4),(5),(6),(7)) AS d(DiaSemana)
 WHERE NOT EXISTS (SELECT 1 FROM dbo.horarios_esperados h WHERE h.BaseDatosId = @BaseMicrosipId);
 GO
+-- 6.11 Mercaltos (§10) — MERCALTOS_BACKUP_DIARIO: 1 respaldo completo diario.
+--      Servidor origen: 192.168.6.5 (agente 6.5 — Microsip/Mercaltos, §2).
+--      No aplica distinción Full/Diferencial -> TipoBackupPredeterminado='FULL'.
+--      Mismo patrón de guards de 6.9/6.10: base con IF NOT EXISTS por nombre (§35)
+--      y ruta con guard NOT EXISTS independiente (re-ejecución recupera lo que
+--      falte aunque la base ya exista).
+--      Mercaltos NO corre domingo (nota del grupo): DiaAplica=0 ese día.
+-- ============================================================================
+DECLARE @GrupoMercaltosId    INT = (SELECT GrupoRespaldoId FROM dbo.cat_grupos_respaldo WHERE Codigo = 'MERCALTOS');
+DECLARE @ServidorMercaltosId INT = (SELECT ServidorId      FROM dbo.cat_servidores WHERE Nombre = '192.168.6.5');
+DECLARE @NASMercaltosId      INT = (SELECT ServidorId      FROM dbo.cat_servidores WHERE Nombre = '192.168.6.9');
+DECLARE @BaseMercaltosId     INT = (SELECT BaseDatosId FROM dbo.cat_bases_datos WHERE NombreBase = 'MERCALTOS_BACKUP_DIARIO');
+
+IF @BaseMercaltosId IS NULL
+BEGIN
+    INSERT INTO dbo.cat_bases_datos (GrupoRespaldoId, ServidorOrigenId, NombreBase, TipoFuente, TipoBackupPredeterminado)
+    VALUES (@GrupoMercaltosId, @ServidorMercaltosId, N'MERCALTOS_BACKUP_DIARIO', N'MERCALTOS', N'FULL');
+    SET @BaseMercaltosId = SCOPE_IDENTITY();
+END
+
+-- Rutas (§5): H:\Mi unidad\Comercialtos\Respaldos -> \\192.168.6.9\RespaldosBD2020\RESPALDOS MERCALTOS\MERCALTOS_BACKUP_DIARIO\
+INSERT INTO dbo.rutas_origen_destino (BaseDatosId, RutaOrigen, RutaDestino, ServidorDestinoId, EliminarOrigenTrasTransferencia)
+SELECT @BaseMercaltosId,
+       N'H:\Mi unidad\Comercialtos\Respaldos',
+       N'\\192.168.6.9\RespaldosBD2020\RESPALDOS MERCALTOS\MERCALTOS_BACKUP_DIARIO\',
+       @NASMercaltosId, 1
+WHERE NOT EXISTS (SELECT 1 FROM dbo.rutas_origen_destino r WHERE r.BaseDatosId = @BaseMercaltosId);
+
+-- Horarios (§9): FULL diario 17:36, tolerancia 180 (ventana 14:36-20:36,
+-- no cruza medianoche). Mercaltos NO corre domingo -> DiaAplica=0.
+INSERT INTO dbo.horarios_esperados (BaseDatosId, DiaSemana, DiaAplica, TipoBackupEsperado, HoraEsperada, ToleranciaMinutos)
+SELECT @BaseMercaltosId, d.DiaSemana,
+       CASE WHEN d.DiaSemana = 7 THEN 0 ELSE 1 END,
+       N'FULL', CAST('17:36' AS TIME(0)), 180
+FROM (VALUES (1),(2),(3),(4),(5),(6),(7)) AS d(DiaSemana)
+WHERE NOT EXISTS (SELECT 1 FROM dbo.horarios_esperados h WHERE h.BaseDatosId = @BaseMercaltosId);
+GO
 -- 6.7 Reglas de retención para grupos restantes (§31)
 IF NOT EXISTS (SELECT 1 FROM dbo.reglas_retencion r JOIN dbo.cat_grupos_respaldo g ON r.GrupoRespaldoId = g.GrupoRespaldoId WHERE g.Codigo IN ('MONGO','MICROSIP','MERCALTOS'))
 BEGIN

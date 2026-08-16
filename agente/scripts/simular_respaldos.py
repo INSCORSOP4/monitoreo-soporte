@@ -2,6 +2,7 @@
 - SQL: {Base}_{YYYYMMDD}_{DIF|FULL}.bak (simula G:\\TempRespSQLServer)
 - MONGO: backup_{YYYYMMDD}_{HHMM}.rar (simula G:\\BackupMongo\\BackupMongoTemp)
 - MICROSIP: Microsip_Backups_{YYYYMMDD}_{HHMMSS}.7z (simula D:\\Respaldos_Microsip\\Local)
+- MERCALTOS: RESPALDOS_MERCALTOS YYYY-MM-DD HH;MM;SS.7z (espacios y ';', simula H:\\Mi unidad\\Comercialtos\\Respaldos)
 
 El catálogo de bases se lee del backend (mismo endpoint que usa el agente), así
 la simulación siempre está alineada con la configuración real (§35).
@@ -13,6 +14,7 @@ Uso:
   python scripts/simular_respaldos.py --omitir MONGO_BACKUP_DIARIO    # dump Mongo faltante -> ERROR
   python scripts/simular_respaldos.py --atrasado MONGO_BACKUP_DIARIO  # dump Mongo fuera de hora -> ADVERTENCIA
   python scripts/simular_respaldos.py --omitir MICROSIP_BACKUP_DIARIO  # .7z faltante -> ERROR
+  python scripts/simular_respaldos.py --omitir MERCALTOS_BACKUP_DIARIO  # .7z faltante -> ERROR
   python scripts/simular_respaldos.py --fecha 2026-08-11 --dir C:\\temp\\sim
 """
 import argparse
@@ -47,7 +49,7 @@ def main() -> int:
     configuracion = api.get_configuracion()
     # Cada proyecto simula SOLO sus fuentes (AGENT_TIPO_FUENTES del .env, §35):
     # agente/ genera SQL+Mongo; agente_6_5/ genera solo el .7z de Microsip.
-    fuentes = AGENT_TIPO_FUENTES or ("SQL", "MONGO", "MICROSIP")
+    fuentes = AGENT_TIPO_FUENTES or ("SQL", "MONGO", "MICROSIP", "MERCALTOS")
     bases = [b for b in configuracion["bases"] if b["tipo_fuente"] in fuentes]
     if not bases:
         print("No hay bases de las fuentes de este agente en el catálogo del backend.")
@@ -87,6 +89,13 @@ def main() -> int:
             # en el NOMBRE, no en el mtime. Esperado a la HoraEsperada (22:00).
             hhmms = "090000" if atrasada else (horario["hora_esperada"].replace(":", "") + "00" if horario else "220000")
             nombre_archivo = f"Microsip_Backups_{fecha.strftime('%Y%m%d')}_{hhmms}.7z"
+            mtime = datetime(fecha.year, fecha.month, fecha.day, int(hhmms[:2]), int(hhmms[2:4]), int(hhmms[4:]))
+        elif base["tipo_fuente"] == "MERCALTOS":
+            # Patrón Mercaltos: 'RESPALDOS_MERCALTOS YYYY-MM-DD HH;MM;SS.7z' —
+            # espacios entre partes y ';' en la hora (a diferencia de los demás).
+            # Esperado a la HoraEsperada (17:36) de Lun-Sáb; domingo no aplica.
+            hhmms = "090000" if atrasada else (horario["hora_esperada"].replace(":", "") + "00" if horario else "173600")
+            nombre_archivo = f"RESPALDOS_MERCALTOS {fecha.strftime('%Y-%m-%d')} {hhmms[:2]};{hhmms[2:4]};{hhmms[4:]}.7z"
             mtime = datetime(fecha.year, fecha.month, fecha.day, int(hhmms[:2]), int(hhmms[2:4]), int(hhmms[4:]))
         else:
             sufijo_tipo = "DIF" if tipo == "DIFERENCIAL" else "FULL"
