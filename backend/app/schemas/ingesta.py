@@ -33,5 +33,14 @@ class BaseConfigOut(BaseModel):
 class ConfiguracionIngestaOut(BaseModel):
     agente_id: int
     agente_nombre: str
+    # Servidor donde corre ESTE agente (cat_agentes.ServidorId, §33). Lo usa el
+    # Disco Checker para reportar discos_lecturas con su ServidorId — el agente
+    # no lo tiene quemado (§35): lo lee de aquí.
+    servidor_id: int | None = None
     generado_en: str
     bases: list[BaseConfigOut]
+    # Disco Checker (§33): umbrales GLOBALES de espacio libre (%). El agente los
+    # lee de aquí — no los tiene quemados (§35). Misma política para todas las
+    # unidades; si algún día se necesita por unidad, se agrega después.
+    disco_warning_pct: int
+    disco_error_pct: int

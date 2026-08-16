@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps_agent import verify_agent_key
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models import (
@@ -104,8 +105,11 @@ def configuracion_ingesta(
     return ConfiguracionIngestaOut(
         agente_id=agente.agente_id,
         agente_nombre=agente.nombre,
+        servidor_id=agente.servidor_id,
         generado_en=datetime.now(timezone.utc).isoformat(),
         bases=bases,
+        disco_warning_pct=settings.disk_warning_pct,
+        disco_error_pct=settings.disk_error_pct,
     )
 
 

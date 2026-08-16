@@ -27,6 +27,7 @@ Requiere SQL Server 2019 (producción en `10.0.3.8`). El script es idempotente (
 │ AgenteId PK        │   AGENTE_10.0.3.8, etc.
 │ Nombre UNIQUE      │   ApiKeyHash = bcrypt,
 │ ApiKeyHash         │   la key en claro se
+│ ServidorId FK ─────┼──► cat_servidores  (Disco Checker §33)
 │ Activo             │   muestra UNA sola vez.
 └────────────────────┘
 ┌────────────────────┐                 │
@@ -99,6 +100,14 @@ Requiere SQL Server 2019 (producción en `10.0.3.8`). El script es idempotente (
 │ UsuarioId FK / Entidad /     │  + DatosAntes/Despues (JSON)
 │ TipoEvento / JSON            │
 └──────────────────────────────┘
+┌──────────────────────────────┐
+│ discos_lecturas (§33)        │  Disco Checker (agente): espacio por
+│──────────────────────────────│  servidor y unidad, una lectura/día
+│ ServidorId FK / UnidadLetra  │  UNIQUE(Servidor,Unidad,Fecha)
+│ FechaLectura / EspacioTotal  │  = misma idempotencia que
+│ LibreGB / PorcentajeLibre    │  respaldos_ejecuciones
+│ Estado OK/ADVERTENCIA/ERROR  │
+└──────────────────────────────┘
 ```
 
 ## Decisiones de diseño
@@ -106,6 +115,7 @@ Requiere SQL Server 2019 (producción en `10.0.3.8`). El script es idempotente (
 | Decisión | Detalle |
 |---|---|
 | **Usuarios locales con hash bcrypt** | `cat_usuarios` guarda `PasswordHash` (bcrypt, nunca en claro) y `DebeCambiarPassword=1` para forzar el cambio en el primer login. `UsuarioExternoId` es opcional (índice único filtrado): permite usuarios creados localmente y sigue evitando duplicados cuando la referencia a `SEGURIDAD_PROSUR` sí existe. |
+| **Nota de equipo — índices únicos filtrados con columna NULL** | En SQL Server `NULL = NULL` dentro de un índice único: cualquier columna nullable que participe en un índice único filtrado necesita predicado explícito. Ej. 1: `UQ_cat_usuarios_UsuarioExternoId` (`WHERE UsuarioExternoId IS NOT NULL`). Ej. 2 (bug real): los índices SISTEMA de incidencias no excluían `BaseDatosId IS NULL`, y dos incidencias de disco de servidores distintos (BaseDatosId=NULL) colisionaban (Msg 2601) — se corrigió con `AND BaseDatosId IS NOT NULL`, dejando el caso disco a `UQ_incidencias_DISCO_*` (por ServidorId). **Regla**: al crear un índice único filtrado, revisar cada columna nullable del predicado y decidir explícitamente si se incluye (`IS NOT NULL`) o se excluye (`IS NULL`). |
 | **Validación por base** (§9/§10) | `cat_bases_datos` registra cada una de las 44+3 bases (41 RESTO + 1 MONGO + 1 MICROSIP + 1 MERCALTOS + 3 FORTIA) con su grupo, servidor origen y tipo predeterminado. |
 | **Horarios por día** (§9/§29) | `horarios_esperados` tiene una fila por `(Base, DiaSemana)`. Así "Lun-Sáb DIF / Dom FULL" y "Dom-Vie DIF / Sáb FULL" son datos, no lógica en código (§35). |
 | **Rutas estrictas** (§5) | Solo se tocan las rutas registradas en `rutas_origen_destino`. El NAS tiene carpetas personales; el sistema nunca opera fuera de estas rutas. |

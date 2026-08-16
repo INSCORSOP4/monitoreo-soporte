@@ -25,6 +25,7 @@ from datetime import date
 
 from api_client import ApiClient, ApiError
 from checkers import crear_checker
+from checkers.disk_checker import DiskChecker
 from config import AGENT_API_KEY, AGENT_FECHA, AGENT_ORIGEN_DIR, AGENT_TIPO_FUENTES, API_BASE_URL
 from logger import get_logger
 
@@ -111,6 +112,38 @@ def main() -> int:
             logger.error("      falló el reporte de %s: %s", base["nombre_base"], exc)
             continue
         conteo[payload["estado"]] += 1
+
+    # Disco Checker (§33): mide las unidades del servidor donde corre ESTE agente.
+    # Descubrimiento dinámico (GetLogicalDrives + shutil.disk_usage); umbrales
+    # GLOBALES que llegan del backend en la configuración (§35). El ServidorId
+    # es el del cat_agentes (vinculado en la configuración), no uno quemado.
+    servidor_id = configuracion.get("servidor_id")
+    if servidor_id is None:
+        logger.warning("Este agente no tiene ServidorId vinculado — se omite el Disco Checker")
+    else:
+        disco = DiskChecker(
+            servidor_id=servidor_id,
+            umbral_warning_pct=configuracion.get("disco_warning_pct", 20),
+            umbral_error_pct=configuracion.get("disco_error_pct", 10),
+        )
+        for lectura in disco.check(fecha):
+            unidad = lectura["unidad_letra"] or "(sin unidad)"
+            logger.info("[%s] Disco %s", lectura["estado"], unidad)
+            if lectura.get("detalle"):
+                logger.info("      %s", lectura["detalle"])
+            if args.dry_run:
+                continue
+            try:
+                resp = api.reportar_lectura_disco(lectura)
+                logger.info(
+                    "      reportada: lectura_id=%s incidencia_id=%s",
+                    resp.get("lectura_id"),
+                    resp.get("incidencia_id"),
+                )
+            except Exception as exc:  # noqa: BLE001 — el ciclo sigue
+                logger.error("      falló el reporte de disco: %s", exc)
+                continue
+            conteo[lectura["estado"]] += 1
 
     resumen = {k: v for k, v in conteo.items() if v}
     logger.info("=" * 62)

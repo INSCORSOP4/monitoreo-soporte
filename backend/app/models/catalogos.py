@@ -88,5 +88,6 @@ class CatAgente(Base):
     agente_id: Mapped[int] = mapped_column("AgenteId", Integer, primary_key=True, autoincrement=True)
     nombre: Mapped[str] = mapped_column("Nombre", String(50), nullable=False, unique=True)
     api_key_hash: Mapped[str] = mapped_column("ApiKeyHash", String(255), nullable=False)  # hash bcrypt, nunca en claro
+    servidor_id: Mapped[int | None] = mapped_column("ServidorId", Integer, ForeignKey("cat_servidores.ServidorId"))  # §33: servidor donde corre el agente
     activo: Mapped[bool] = mapped_column("Activo", Boolean, nullable=False, server_default="1")
     fecha_registro: Mapped[datetime] = mapped_column("FechaRegistro", DateTime(0), nullable=False, server_default=text("SYSDATETIME()"))

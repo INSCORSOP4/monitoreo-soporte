@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.models import CatBaseDatos, CatTipoIncidencia, Incidencia, ResponsableDia
+from app.models import CatBaseDatos, CatServidor, CatTipoIncidencia, Incidencia, ResponsableDia
 
 logger = get_logger(__name__)
 
@@ -24,7 +24,11 @@ def _tipo_incidencia_por_fuente(db: Session, tipo_fuente: str) -> int:
     Ej.: SQL -> RESPALDO_SQL, MONGO -> RESPALDO_MONGO. Si el código no existe,
     cae a OTRO en lugar de fallar la ingesta.
     """
-    codigo = f"RESPALDO_{tipo_fuente}"
+    return _tipo_incidencia_por_codigo(db, f"RESPALDO_{tipo_fuente}")
+
+
+def _tipo_incidencia_por_codigo(db: Session, codigo: str) -> int:
+    """Resuelve un código de cat_tipos_incidencia; fallback a OTRO si no existe."""
     tipo = db.scalar(select(CatTipoIncidencia).where(CatTipoIncidencia.codigo == codigo))
     if tipo is None:
         logger.warning("Tipo de incidencia %s no existe en catálogo; se usa %s", codigo, _CODIGO_FALLBACK)
@@ -116,6 +120,67 @@ def crear_o_reutilizar_incidencia_sistema(
         "Incidencia #%s (SISTEMA) creada: base %s, fecha %s, responsable_dia_id %s",
         incidencia.incidencia_id,
         base.nombre_base,
+        fecha,
+        incidencia.responsable_dia_id,
+    )
+    return incidencia
+
+
+def crear_o_reutilizar_incidencia_disco(
+    db: Session,
+    *,
+    servidor: CatServidor,
+    fecha: date,
+    problema: str,
+    detalle: str | None = None,
+) -> Incidencia:
+    """Incidencia automática del Disco Checker (§26/§33) — una por (servidor, fecha).
+
+    A diferencia de la de respaldos (por base), esta se vincula al SERVIDOR
+    (BaseDatosId=NULL) con TipoIncidenciaId=DISCO_SERVIDOR. Idempotente: si el
+    checker reenvía el ERROR el mismo día, se reutiliza la incidencia SISTEMA
+    abierta (barrera BD: UQ_incidencias_DISCO_Abierta/_EnProceso).
+    """
+    def _abierta_existente():
+        return db.scalar(
+            select(Incidencia).where(
+                Incidencia.servidor_id == servidor.servidor_id,
+                Incidencia.base_datos_id.is_(None),
+                Incidencia.fecha_incidencia == fecha,
+                Incidencia.detectada_por == "SISTEMA",
+                Incidencia.estado.in_(["ABIERTA", "EN_PROCESO"]),
+            )
+        )
+
+    existente = _abierta_existente()
+    if existente is not None:
+        return existente
+
+    incidencia = Incidencia(
+        tipo_incidencia_id=_tipo_incidencia_por_codigo(db, "DISCO_SERVIDOR"),
+        servidor_id=servidor.servidor_id,
+        base_datos_id=None,
+        fecha_incidencia=fecha,
+        estado="ABIERTA",
+        detectada_por="SISTEMA",
+        problema=problema[:500],
+        detalle=detalle,
+        responsable_dia_id=_responsable_dia(db, fecha),
+    )
+
+    try:
+        with db.begin_nested():
+            db.add(incidencia)
+    except IntegrityError:
+        existente = _abierta_existente()
+        if existente is None:
+            raise
+        return existente
+
+    logger.info(
+        "Incidencia #%s (SISTEMA/disco) creada: servidor %s, fecha %s, responsable_dia_id %s",
+        incidencia.incidencia_id,
+        servidor.nombre,
         fecha,
         incidencia.responsable_dia_id,
     )

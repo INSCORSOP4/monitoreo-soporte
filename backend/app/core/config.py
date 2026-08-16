@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     seguridad_driver: str = "ODBC Driver 18 for SQL Server"
     seguridad_trust_server_certificate: str = "yes"
 
+    # --- Disco Checker (§33) — umbrales GLOBALES de espacio libre, iguales para
+    # todas las unidades de todos los servidores (política por .env, NO en BD;
+    # si algún día se necesita un umbral por unidad, se agrega después).
+    # Porcentaje libre bajo el cual el Disco Checker reporta ADVERTENCIA / ERROR.
+    disk_warning_pct: int = 20
+    disk_error_pct: int = 10
+
     # --- Autenticación (JWT) ---
     jwt_secret: str = "dev-only-secret-cambiar-en-produccion"
     jwt_algorithm: str = "HS256"

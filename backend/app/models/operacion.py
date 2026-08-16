@@ -1,7 +1,7 @@
 """Modelos ORM — Operación diaria (secciones 3.1 a 3.7 del DDL)."""
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, String, Text, text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -102,6 +102,24 @@ class ResponsableDia(Base):
     origen_asignacion: Mapped[str] = mapped_column("OrigenAsignacion", String(10), nullable=False, server_default="AUTO")
     usuario_reasigno_id: Mapped[int | None] = mapped_column("UsuarioReasignoId", Integer, ForeignKey("cat_usuarios.UsuarioId"))
     fecha_asignacion: Mapped[datetime] = mapped_column("FechaAsignacion", DateTime(0), nullable=False, server_default=text("SYSDATETIME()"))
+
+
+class DiscosLectura(Base):
+    """Lectura diaria de espacio en disco por servidor (§33 Disco Checker)."""
+
+    __tablename__ = "discos_lecturas"
+
+    lectura_id: Mapped[int] = mapped_column("LecturaId", BigInteger, primary_key=True, autoincrement=True)
+    servidor_id: Mapped[int] = mapped_column("ServidorId", Integer, ForeignKey("cat_servidores.ServidorId"), nullable=False)
+    unidad_letra: Mapped[str] = mapped_column("UnidadLetra", String(5), nullable=False)
+    fecha_lectura: Mapped[date] = mapped_column("FechaLectura", Date, nullable=False)
+    espacio_total_gb: Mapped[float] = mapped_column("EspacioTotalGB", Numeric(10, 2), nullable=False)
+    espacio_libre_gb: Mapped[float] = mapped_column("EspacioLibreGB", Numeric(10, 2), nullable=False)
+    porcentaje_libre: Mapped[float] = mapped_column("PorcentajeLibre", Numeric(5, 2), nullable=False)
+    estado: Mapped[str] = mapped_column("Estado", String(15), nullable=False)  # OK/ADVERTENCIA/ERROR
+    detalle: Mapped[str | None] = mapped_column("Detalle", Text)
+    incidencia_id: Mapped[int | None] = mapped_column("IncidenciaId", Integer, ForeignKey("incidencias.IncidenciaId"))
+    fecha_registro: Mapped[datetime] = mapped_column("FechaRegistro", DateTime(0), nullable=False, server_default=text("SYSDATETIME()"))
 
 
 class Rotacion(Base):

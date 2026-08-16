@@ -20,6 +20,7 @@ from app.models.historial import Historial  # noqa: F401
 from app.models.operacion import (  # noqa: F401
     AccionIncidencia,
     Alerta,
+    DiscosLectura,
     Incidencia,
     RespaldoEjecucion,
     ResponsableDia,

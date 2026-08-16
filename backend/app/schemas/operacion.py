@@ -34,6 +34,34 @@ class RespaldoEjecucionCreate(BaseModel):
     detalle: str | None = Field(default=None, max_length=2000)  # trazabilidad del agente (§35)
 
 
+class DiscosLecturaOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    lectura_id: int
+    servidor_id: int
+    unidad_letra: str
+    fecha_lectura: date
+    espacio_total_gb: float
+    espacio_libre_gb: float
+    porcentaje_libre: float
+    estado: str  # OK/ADVERTENCIA/ERROR
+    detalle: str | None = None
+    incidencia_id: int | None = None  # §26: incidencia automática vinculada (si ERROR)
+
+
+class DiscosLecturaCreate(BaseModel):
+    """Reporte del Disco Checker (§33). Idempotente por (ServidorId, UnidadLetra, FechaLectura)."""
+
+    servidor_id: int = Field(gt=0)
+    unidad_letra: str = Field(min_length=1, max_length=5)  # 'C:', 'D:', 'G:'
+    fecha_lectura: date
+    espacio_total_gb: float = Field(gt=0)
+    espacio_libre_gb: float = Field(ge=0)
+    porcentaje_libre: float = Field(ge=0, le=100)
+    estado: str = Field(pattern="^(OK|ADVERTENCIA|ERROR)$")
+    detalle: str | None = Field(default=None, max_length=2000)  # trazabilidad del checker (§35)
+
+
 class IncidenciaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

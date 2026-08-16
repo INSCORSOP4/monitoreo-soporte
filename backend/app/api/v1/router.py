@@ -7,6 +7,7 @@ from app.api.v1 import (
     auth,
     bases_datos,
     dashboard,
+    discos,
     health,
     historial,
     incidencias,
@@ -30,6 +31,7 @@ api_router.include_router(ingesta.router)
 api_router.include_router(bases_datos.router)
 api_router.include_router(respaldos.router)
 api_router.include_router(transferencias.router)
+api_router.include_router(discos.router)
 api_router.include_router(incidencias.router)
 api_router.include_router(alertas.router)
 api_router.include_router(historial.router)

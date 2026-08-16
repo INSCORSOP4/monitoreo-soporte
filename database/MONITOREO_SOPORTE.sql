@@ -213,12 +213,33 @@ BEGIN
         AgenteId        INT           NOT NULL IDENTITY(1,1),
         Nombre          VARCHAR(50)   NOT NULL,          -- AGENTE_10.0.3.8 / AGENTE_192.168.6.5
         ApiKeyHash      VARCHAR(255)  NOT NULL,          -- hash bcrypt de la API key
+        ServidorId      INT           NULL,          -- servidor donde vive el agente (Disco Checker §33)
         Activo          BIT           NOT NULL CONSTRAINT DF_cat_agentes_Activo DEFAULT (1),
         FechaRegistro   DATETIME2(0)  NOT NULL CONSTRAINT DF_cat_agentes_FechaRegistro DEFAULT (SYSDATETIME()),
         CONSTRAINT PK_cat_agentes PRIMARY KEY CLUSTERED (AgenteId),
-        CONSTRAINT UQ_cat_agentes_Nombre UNIQUE (Nombre)
+        CONSTRAINT UQ_cat_agentes_Nombre UNIQUE (Nombre),
+        CONSTRAINT FK_cat_agentes_Servidor FOREIGN KEY (ServidorId) REFERENCES dbo.cat_servidores (ServidorId)
     );
 END
+GO
+
+-- Migración idempotente (§33): BD creadas antes de ServidorId.
+IF COL_LENGTH(N'dbo.cat_agentes', N'ServidorId') IS NULL
+    ALTER TABLE dbo.cat_agentes ADD ServidorId INT NULL;
+GO
+
+IF OBJECT_ID(N'dbo.FK_cat_agentes_Servidor', N'F') IS NULL
+    ALTER TABLE dbo.cat_agentes
+        ADD CONSTRAINT FK_cat_agentes_Servidor FOREIGN KEY (ServidorId) REFERENCES dbo.cat_servidores (ServidorId);
+GO
+
+-- Vincular agentes a su servidor por NOMBRE (portable: los IDs difieren por
+-- instalación — 10.0.3.8 es ServidorId 1 aquí, 4 en otra máquina). AGENTE_<IP>
+-- se mapea al cat_servidores cuyo Nombre es esa IP.
+UPDATE a SET ServidorId = s.ServidorId
+FROM dbo.cat_agentes a
+JOIN dbo.cat_servidores s ON s.Nombre = REPLACE(a.Nombre, 'AGENTE_', '')
+WHERE a.ServidorId IS NULL;
 GO
 
 -- ============================================================================
@@ -510,6 +531,40 @@ BEGIN
 END
 GO
 
+/* ----------------------------------------------------------------------------
+   3.8 discos_lecturas  (§33 Disco Checker) — Lectura diaria de espacio en disco
+        por servidor. La reporta el Disco Checker (agente), no el humano.
+        UNIQUE (ServidorId, UnidadLetra, FechaLectura): misma idempotencia que
+        respaldos_ejecuciones — reejecutar el checker actualiza en vez de duplicar.
+---------------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.discos_lecturas', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.discos_lecturas
+    (
+        LecturaId       BIGINT        NOT NULL IDENTITY(1,1),
+        ServidorId      INT           NOT NULL,
+        UnidadLetra     VARCHAR(5)    NOT NULL,          -- 'C:', 'D:', 'G:' (o letra NAS)
+        FechaLectura    DATE          NOT NULL,          -- día operativo de la lectura
+        EspacioTotalGB  DECIMAL(10,2) NOT NULL,
+        EspacioLibreGB  DECIMAL(10,2) NOT NULL,
+        PorcentajeLibre DECIMAL(5,2)  NOT NULL,
+        Estado          VARCHAR(15)   NOT NULL,          -- OK / ADVERTENCIA / ERROR
+        Detalle         NVARCHAR(MAX) NULL,              -- trazabilidad del checker (§35)
+        IncidenciaId    INT           NULL,              -- Si el ERROR generó incidencia (FK diferida, sección 5)
+        FechaRegistro   DATETIME2(0)  NOT NULL CONSTRAINT DF_discos_FechaRegistro DEFAULT (SYSDATETIME()),
+        CONSTRAINT PK_discos_lecturas PRIMARY KEY CLUSTERED (LecturaId),
+        CONSTRAINT UQ_discos_lecturas UNIQUE (ServidorId, UnidadLetra, FechaLectura),  -- Idempotencia
+        CONSTRAINT FK_discos_Servidor FOREIGN KEY (ServidorId) REFERENCES dbo.cat_servidores (ServidorId),
+        CONSTRAINT CK_discos_Estado CHECK (Estado IN ('OK', 'ADVERTENCIA', 'ERROR'))
+    );
+END
+GO
+
+-- Migración idempotente (§33): IncidenciaId en BD creadas antes.
+IF COL_LENGTH(N'dbo.discos_lecturas', N'IncidenciaId') IS NULL
+    ALTER TABLE dbo.discos_lecturas ADD IncidenciaId INT NULL;
+GO
+
 -- ============================================================================
 -- 4. HISTORIAL  (§27, §35)
 -- ============================================================================
@@ -557,6 +612,36 @@ IF OBJECT_ID(N'dbo.FK_transferencias_Incidencia', N'F') IS NULL
         ADD CONSTRAINT FK_transferencias_Incidencia FOREIGN KEY (IncidenciaId) REFERENCES dbo.incidencias (IncidenciaId);
 GO
 
+IF OBJECT_ID(N'dbo.FK_discos_Incidencia', N'F') IS NULL
+    ALTER TABLE dbo.discos_lecturas
+        ADD CONSTRAINT FK_discos_Incidencia FOREIGN KEY (IncidenciaId) REFERENCES dbo.incidencias (IncidenciaId);
+GO
+
+-- §26: barrera de idempotencia para incidencias de DISCO (BaseDatosId=NULL).
+-- Los índices de respaldo cubren (Base, Fecha); en disco la entidad es el
+-- SERVIDOR: (ServidorId, FechaIncidencia, SISTEMA). Dos (ABIERTA y EN_PROCESO)
+-- por el mismo motivo que los de respaldo (SQL Server no permite IN en filtrado).
+SET QUOTED_IDENTIFIER ON;  -- los índices filtrados (§26) lo requieren
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'UQ_incidencias_DISCO_Abierta' AND object_id = OBJECT_ID(N'dbo.incidencias')
+)
+    CREATE UNIQUE NONCLUSTERED INDEX UQ_incidencias_DISCO_Abierta
+        ON dbo.incidencias (ServidorId, FechaIncidencia, DetectadaPor)
+        WHERE DetectadaPor = 'SISTEMA' AND Estado = 'ABIERTA' AND BaseDatosId IS NULL;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'UQ_incidencias_DISCO_EnProceso' AND object_id = OBJECT_ID(N'dbo.incidencias')
+)
+    CREATE UNIQUE NONCLUSTERED INDEX UQ_incidencias_DISCO_EnProceso
+        ON dbo.incidencias (ServidorId, FechaIncidencia, DetectadaPor)
+        WHERE DetectadaPor = 'SISTEMA' AND Estado = 'EN_PROCESO' AND BaseDatosId IS NULL;
+GO
+
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
     WHERE name = 'IX_respaldos_ejecuciones_FechaEstado' AND object_id = OBJECT_ID(N'dbo.respaldos_ejecuciones')
@@ -599,7 +684,7 @@ IF NOT EXISTS (
 )
     CREATE UNIQUE NONCLUSTERED INDEX UQ_incidencias_SISTEMA_Abierta
         ON dbo.incidencias (BaseDatosId, FechaIncidencia, DetectadaPor)
-        WHERE DetectadaPor = 'SISTEMA' AND Estado = 'ABIERTA';
+        WHERE DetectadaPor = 'SISTEMA' AND Estado = 'ABIERTA' AND BaseDatosId IS NOT NULL;
 GO
 
 IF NOT EXISTS (
@@ -608,7 +693,7 @@ IF NOT EXISTS (
 )
     CREATE UNIQUE NONCLUSTERED INDEX UQ_incidencias_SISTEMA_EnProceso
         ON dbo.incidencias (BaseDatosId, FechaIncidencia, DetectadaPor)
-        WHERE DetectadaPor = 'SISTEMA' AND Estado = 'EN_PROCESO';
+        WHERE DetectadaPor = 'SISTEMA' AND Estado = 'EN_PROCESO' AND BaseDatosId IS NOT NULL;
 GO
 
 IF NOT EXISTS (
