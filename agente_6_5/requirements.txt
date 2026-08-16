@@ -1,0 +1,4 @@
+# Agente 192.168.6.5 — SOLO biblioteca estándar de Python 3.11+.
+# No requiere pip install: urllib.request, json, logging, pathlib, datetime.
+# Requisito: Python 3.11+ instalado en 192.168.6.5.
+# Nota: este archivo es de referencia; no hay dependencias que instalar.
