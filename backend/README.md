@@ -82,6 +82,7 @@ backend/
 | GET | `/api/v1/responsables-dia/hoy` | Responsable del día para el dashboard (§21): dispara la asignación automática por rotación si aún no existe (solo días hábiles) |
 | PUT | `/api/v1/responsables-dia/{fecha}` | Asignación MANUAL del responsable (solo COORDINADOR/ADMINISTRADOR, §21): fija UsuarioId con `OrigenAsignacion='MANUAL'` y registra `UsuarioReasignoId`. Una vez MANUAL, la lógica automática nunca lo sobrescribe |
 | GET | `/api/v1/incidencias?estado=ABIERTA` | Incidencias abiertas (§26) |
+| GET | `/api/v1/alertas` | Bitácora de envíos de correo (§28): dedupe por entidad, estados ENVIADA/FALLIDA/PENDIENTE/SUPRIMIDA |
 | GET | `/api/v1/historial?entidad=incidencias` | Historial de auditoría (§27) |
 
 ## Autenticación (§22)
@@ -102,6 +103,23 @@ La ingesta del agente solo reporta hechos; las incidencias las genera el backend
 - Idempotente: reenvíos del mismo ERROR reutilizan la incidencia abierta de (base, fecha); si el estado vuelve a `OK`, la incidencia **no** se cierra automáticamente — la cierra Soporte al registrar la intervención (§26).
 - Si no hay responsable para la fecha, se asigna automáticamente por **rotación** (`rotacion`, §21): se toma el último `OrigenAsignacion='AUTO'` anterior a la fecha, se avanza al siguiente `Orden` activo (salta `Suspendido=1` y usuarios `Activo=0`, da la vuelta al final) y se registra la fila AUTO. Sin asignación previa se empieza en `Orden=1`. Si no hay participantes activos, la incidencia se crea con `ResponsableDiaId NULL` (queda para la revisión) y se registra un warning.
 - La asignación automática es **lazy y solo en días hábiles**: en fin de semana (sáb/dom) no se intenta la rotación — la incidencia queda con `ResponsableDiaId NULL` y el log registra el aviso; el responsable se calcula bajo demanda (al primer ERROR del día) y se guarda con `OrigenAsignacion='AUTO'` antes de usarse.
+
+## Alertas por correo (§28)
+
+Los endpoints de ingesta (`POST /respaldos/ejecuciones` y `POST /discos/lecturas`) crean alertas para **todo Soporte** en `ERROR` y `ADVERTENCIA` (no-op en OK). FastAPI ejecuta el SMTP con `BackgroundTasks` después de responder al agente, por lo que un servidor de correo lento o caído no bloquea la ingesta. La bitácora queda en `alertas` (`GET /api/v1/alertas`, JWT humano).
+
+**Configuración (`.env`, nunca en el chat ni en el repo):** `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` (+ `SMTP_TLS`, `SMTP_TIMEOUT`, `ALERTA_ROL_DESTINATARIOS`). Cualquier fallo de configuración, red, TLS o autenticación marca la alerta `FALLIDA` y guarda `ErrorDetalle`.
+
+**Anti-spam — dedupe por ENTIDAD, no solo por IncidenciaId:** las ADVERTENCIAS no crean incidencia (por diseño), así que la alerta se deduplica por la entidad que la originó (barrera BD: índices únicos filtrados en `alertas`):
+
+| Evento | Clave de dedupe |
+|---|---|
+| ERROR de respaldo | `IncidenciaId` (incidencia SISTEMA §26) |
+| ADVERTENCIA de respaldo | `EjecucionId` (idempotente por base+fecha) |
+| ERROR de disco | `IncidenciaId` (DISCO_SERVIDOR) |
+| ADVERTENCIA de disco | `LecturaDiscoId` (idempotente por servidor+unidad+fecha) |
+
+Las alertas `FALLIDA` se reintentan con `POST /api/v1/alertas/{alerta_id}/reintentar`; el endpoint responde `202` y vuelve a ejecutar el SMTP en segundo plano sobre la **misma fila**.
 
 ## TLS / HTTPS (§38)
 

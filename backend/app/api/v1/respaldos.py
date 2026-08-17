@@ -7,7 +7,7 @@ Autenticación separada por endpoint:
 """
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -18,6 +18,7 @@ from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models import CatAgente, CatBaseDatos, CatGrupoRespaldo, RespaldoEjecucion
 from app.schemas.operacion import RespaldoEjecucionCreate, RespaldoEjecucionOut
+from app.services import alertas_service
 from app.services.incidencias_service import crear_o_reutilizar_incidencia_sistema
 
 logger = get_logger(__name__)
@@ -70,6 +71,7 @@ def resumen_diario(fecha: date, db: Session = Depends(get_db)) -> dict:
 @router.post("/ejecuciones", response_model=RespaldoEjecucionOut, status_code=200)
 def reportar_ejecucion(
     body: RespaldoEjecucionCreate,
+    background_tasks: BackgroundTasks,
     agente: CatAgente = Depends(verify_agent_key),
     db: Session = Depends(get_db),
 ) -> RespaldoEjecucionOut:
@@ -149,6 +151,26 @@ def reportar_ejecucion(
         )
         ejecucion.incidencia_id = incidencia.incidencia_id
 
+    alerta = None
+    if body.estado in ("ERROR", "ADVERTENCIA"):
+        alerta = alertas_service.crear_alerta_si_no_existe(
+            db,
+            body.estado,
+            incidencia_id=ejecucion.incidencia_id if body.estado == "ERROR" else None,
+            ejecucion_id=ejecucion.ejecucion_id if body.estado == "ADVERTENCIA" else None,
+        )
+        if alerta is not None:
+            alertas_service.preparar_alerta_respaldo(
+                alerta,
+                ejecucion=ejecucion,
+                base=base,
+                agente=agente,
+            )
+
     db.commit()
     db.refresh(ejecucion)
+
+    if alerta is not None:
+        background_tasks.add_task(alertas_service.enviar_alerta, alerta.alerta_id)
+
     return RespaldoEjecucionOut.model_validate(ejecucion)

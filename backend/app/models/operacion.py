@@ -84,11 +84,13 @@ class Alerta(Base):
     alerta_id: Mapped[int] = mapped_column("AlertaId", Integer, primary_key=True, autoincrement=True)
     incidencia_id: Mapped[int | None] = mapped_column("IncidenciaId", Integer, ForeignKey("incidencias.IncidenciaId"))
     ejecucion_id: Mapped[int | None] = mapped_column("EjecucionId", BigInteger, ForeignKey("respaldos_ejecuciones.EjecucionId"))
+    lectura_disco_id: Mapped[int | None] = mapped_column("LecturaDiscoId", BigInteger, ForeignKey("discos_lecturas.LecturaId"))  # §28: ADVERTENCIA de disco (sin incidencia)
     tipo_evento: Mapped[str] = mapped_column("TipoEvento", String(30), nullable=False)
     asunto: Mapped[str] = mapped_column("Asunto", String(200), nullable=False)
     cuerpo: Mapped[str | None] = mapped_column("Cuerpo", Text)
     destinatarios: Mapped[str | None] = mapped_column("Destinatarios", String(500))
     estado: Mapped[str] = mapped_column("Estado", String(15), nullable=False, server_default="ENVIADA")
+    error_detalle: Mapped[str | None] = mapped_column("ErrorDetalle", Text)
     fecha_envio: Mapped[datetime | None] = mapped_column("FechaEnvio", DateTime(0))
     fecha_registro: Mapped[datetime] = mapped_column("FechaRegistro", DateTime(0), nullable=False, server_default=text("SYSDATETIME()"))
 

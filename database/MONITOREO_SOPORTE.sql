@@ -33,7 +33,13 @@
        sin romper este esquema.
      - El catálogo de las 41 bases RESTO se carga en un script de seed aparte
        (data/seed_bases_res_to.sql) una vez confirmado el inventario exacto.
+
+   Nota: los índices filtrados (incidencias SISTEMA/DISCO, alertas §28) requieren
+   QUOTED_IDENTIFIER ON — declarado aquí para que el script corra en cualquier cliente.
 ============================================================================ */
+
+SET QUOTED_IDENTIFIER ON;
+GO
 
 -- ============================================================================
 -- 0. CREACIÓN DE LA BASE
@@ -460,7 +466,7 @@ GO
 
 /* ----------------------------------------------------------------------------
    3.5 alertas  (§28) — Bitácora de envío de correos.
-        - Evita el envío excesivo: una alerta por (TipoEvento, Incidencia, Fecha) vía clave única.
+        - Evita el envío excesivo: una alerta por entidad origen vía clave única.
         - Estado: ENVIADA / FALLIDA / PENDIENTE / SUPRIMIDA
 ---------------------------------------------------------------------------- */
 IF OBJECT_ID(N'dbo.alertas', N'U') IS NULL
@@ -470,11 +476,13 @@ BEGIN
         AlertaId        INT            NOT NULL IDENTITY(1,1),
         IncidenciaId    INT            NULL,
         EjecucionId     BIGINT         NULL,
+        LecturaDiscoId  BIGINT         NULL,
         TipoEvento      VARCHAR(30)    NOT NULL,           -- ERROR / ADVERTENCIA / INFO
         Asunto          NVARCHAR(200)  NOT NULL,
         Cuerpo          NVARCHAR(MAX)  NULL,
         Destinatarios   NVARCHAR(500)  NULL,
         Estado          VARCHAR(15)    NOT NULL CONSTRAINT DF_alertas_Estado DEFAULT ('ENVIADA'),
+        ErrorDetalle    NVARCHAR(MAX)  NULL,
         FechaEnvio      DATETIME2(0)   NULL,
         FechaRegistro   DATETIME2(0)   NOT NULL CONSTRAINT DF_alertas_FechaRegistro DEFAULT (SYSDATETIME()),
         CONSTRAINT PK_alertas PRIMARY KEY CLUSTERED (AlertaId),
@@ -484,6 +492,91 @@ BEGIN
         CONSTRAINT CK_alertas_TipoEvento CHECK (TipoEvento IN ('ERROR', 'ADVERTENCIA', 'INFO'))
     );
 END
+GO
+
+-- Migración idempotente (§28): FKs a la entidad origen de la alerta.
+-- Nota: las PK referenciadas (EjecucionId/LecturaId) son BIGINT en este esquema;
+-- SQL Server requiere el mismo tipo para crear la FK.
+IF COL_LENGTH(N'dbo.alertas', N'EjecucionId') IS NULL
+    ALTER TABLE dbo.alertas ADD EjecucionId BIGINT NULL;
+GO
+
+IF COL_LENGTH(N'dbo.alertas', N'ErrorDetalle') IS NULL
+    ALTER TABLE dbo.alertas ADD ErrorDetalle NVARCHAR(MAX) NULL;
+GO
+
+-- Compatibilidad con BD creadas durante la implementación parcial anterior.
+IF OBJECT_ID(N'dbo.FK_alertas_Lectura', N'F') IS NOT NULL
+    ALTER TABLE dbo.alertas DROP CONSTRAINT FK_alertas_Lectura;
+GO
+
+IF EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'UQ_alertas_ADVERTENCIA_Ejecucion' AND object_id = OBJECT_ID(N'dbo.alertas')
+)
+    DROP INDEX UQ_alertas_ADVERTENCIA_Ejecucion ON dbo.alertas;
+GO
+
+IF EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'UQ_alertas_ADVERTENCIA_Lectura' AND object_id = OBJECT_ID(N'dbo.alertas')
+)
+    DROP INDEX UQ_alertas_ADVERTENCIA_Lectura ON dbo.alertas;
+GO
+
+IF COL_LENGTH(N'dbo.alertas', N'LecturaId') IS NOT NULL
+   AND COL_LENGTH(N'dbo.alertas', N'LecturaDiscoId') IS NULL
+    EXEC sp_rename 'dbo.alertas.LecturaId', 'LecturaDiscoId', 'COLUMN';
+GO
+
+IF COL_LENGTH(N'dbo.alertas', N'LecturaDiscoId') IS NULL
+    ALTER TABLE dbo.alertas ADD LecturaDiscoId BIGINT NULL;
+GO
+
+-- Copia de datos solo si una BD intermedia quedó con AMBAS columnas (LecturaId
+-- con datos + LecturaDiscoId NULL). Debe ir en SQL dinámico: si solo existe
+-- LecturaId, el sp_rename previo ya la convirtió en LecturaDiscoId y este batch
+-- no compilaría al referenciar la columna vieja (Msg 207 en parse/compilación).
+IF COL_LENGTH(N'dbo.alertas', N'LecturaId') IS NOT NULL
+   AND COL_LENGTH(N'dbo.alertas', N'LecturaDiscoId') IS NOT NULL
+    EXEC(N'UPDATE dbo.alertas
+             SET LecturaDiscoId = LecturaId
+           WHERE LecturaDiscoId IS NULL
+             AND LecturaId IS NOT NULL;');
+GO
+
+-- §28 anti-spam: barrera BD de deduplicación por ENTIDAD que originó la alerta.
+-- Las ADVERTENCIAS no tienen IncidenciaId (no crean incidencia), por eso cada
+-- alerta se deduplica por su referencia:
+--   ERROR               -> IncidenciaId  (incidencia SISTEMA §26)
+--   ADVERTENCIA respaldo -> EjecucionId  (idempotente por base+fecha)
+--   ADVERTENCIA disco    -> LecturaDiscoId (idempotente por servidor+unidad+fecha)
+-- Nota de equipo: columna nullable en índice único filtrado -> predicado explícito.
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'UQ_alertas_ERROR_Incidencia' AND object_id = OBJECT_ID(N'dbo.alertas')
+)
+    CREATE UNIQUE NONCLUSTERED INDEX UQ_alertas_ERROR_Incidencia
+        ON dbo.alertas (IncidenciaId)
+        WHERE TipoEvento = 'ERROR' AND IncidenciaId IS NOT NULL;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'UQ_alertas_ADVERTENCIA_Ejecucion' AND object_id = OBJECT_ID(N'dbo.alertas')
+)
+    CREATE UNIQUE NONCLUSTERED INDEX UQ_alertas_ADVERTENCIA_Ejecucion
+        ON dbo.alertas (TipoEvento, EjecucionId)
+        WHERE EjecucionId IS NOT NULL;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'UQ_alertas_ADVERTENCIA_LecturaDisco' AND object_id = OBJECT_ID(N'dbo.alertas')
+)
+    CREATE UNIQUE NONCLUSTERED INDEX UQ_alertas_ADVERTENCIA_LecturaDisco
+        ON dbo.alertas (TipoEvento, LecturaDiscoId)
+        WHERE LecturaDiscoId IS NOT NULL;
 GO
 
 /* ----------------------------------------------------------------------------
@@ -615,6 +708,16 @@ GO
 IF OBJECT_ID(N'dbo.FK_discos_Incidencia', N'F') IS NULL
     ALTER TABLE dbo.discos_lecturas
         ADD CONSTRAINT FK_discos_Incidencia FOREIGN KEY (IncidenciaId) REFERENCES dbo.incidencias (IncidenciaId);
+GO
+
+IF OBJECT_ID(N'dbo.FK_alertas_Ejecucion', N'F') IS NULL
+    ALTER TABLE dbo.alertas
+        ADD CONSTRAINT FK_alertas_Ejecucion FOREIGN KEY (EjecucionId) REFERENCES dbo.respaldos_ejecuciones (EjecucionId);
+GO
+
+IF OBJECT_ID(N'dbo.FK_alertas_LecturaDisco', N'F') IS NULL
+    ALTER TABLE dbo.alertas
+        ADD CONSTRAINT FK_alertas_LecturaDisco FOREIGN KEY (LecturaDiscoId) REFERENCES dbo.discos_lecturas (LecturaId);
 GO
 
 -- §26: barrera de idempotencia para incidencias de DISCO (BaseDatosId=NULL).

@@ -15,7 +15,7 @@ DISCO_SERVIDOR, y la vincula a la lectura (discos_lecturas.IncidenciaId).
 """
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -25,6 +25,7 @@ from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models import CatAgente, CatServidor, DiscosLectura
 from app.schemas.operacion import DiscosLecturaCreate, DiscosLecturaOut
+from app.services import alertas_service
 from app.services.incidencias_service import crear_o_reutilizar_incidencia_disco
 
 logger = get_logger(__name__)
@@ -35,6 +36,7 @@ router = APIRouter(prefix="/discos", tags=["discos"])
 @router.post("/lecturas", response_model=DiscosLecturaOut, status_code=200)
 def reportar_lectura_disco(
     body: DiscosLecturaCreate,
+    background_tasks: BackgroundTasks,
     agente: CatAgente = Depends(verify_agent_key),
     db: Session = Depends(get_db),
 ) -> DiscosLecturaOut:
@@ -121,6 +123,26 @@ def reportar_lectura_disco(
         )
         lectura.incidencia_id = incidencia.incidencia_id
 
+    alerta = None
+    if body.estado in ("ERROR", "ADVERTENCIA"):
+        alerta = alertas_service.crear_alerta_si_no_existe(
+            db,
+            body.estado,
+            incidencia_id=lectura.incidencia_id if body.estado == "ERROR" else None,
+            lectura_id=lectura.lectura_id if body.estado == "ADVERTENCIA" else None,
+        )
+        if alerta is not None:
+            alertas_service.preparar_alerta_disco(
+                alerta,
+                lectura=lectura,
+                servidor=servidor,
+                agente=agente,
+            )
+
     db.commit()
     db.refresh(lectura)
+
+    if alerta is not None:
+        background_tasks.add_task(alertas_service.enviar_alerta, alerta.alerta_id)
+
     return DiscosLecturaOut.model_validate(lectura)

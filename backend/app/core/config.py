@@ -63,6 +63,23 @@ class Settings(BaseSettings):
     disk_warning_pct: int = 20
     disk_error_pct: int = 10
 
+    # --- Alertas por correo (§28) — SMTP.
+    # Las credenciales viven SOLO en .env (nunca en código ni en el chat).
+    # Si SMTP_HOST queda vacío, el envío asíncrono marca la alerta FALLIDA con
+    # detalle para que el endpoint de reintentos la procese posteriormente.
+    # smtp_tls=False solo para SMTP de prueba
+    # local sin STARTTLS; en producción siempre True.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_tls: bool = True
+    smtp_timeout: int = 15
+    # Rol cuyos usuarios Activo=1 reciben las alertas (leído de BD, §35);
+    # el override por env evita quemar el rol en código.
+    alerta_rol_destinatarios: str = "SOPORTE"
+
     # --- Autenticación (JWT) ---
     jwt_secret: str = "dev-only-secret-cambiar-en-produccion"
     jwt_algorithm: str = "HS256"

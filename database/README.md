@@ -90,9 +90,10 @@ Requiere SQL Server 2019 (producción en `10.0.3.8`). El script es idempotente (
 ┌──────────────────────────────┐     ┌────────────────────────────────┐
 │ alertas                      │     │ responsables_dia               │
 │──────────────────────────────│     │────────────────────────────────│
-│ IncidenciaId FK / Ejecucion  │     │ Fecha (UNIQUE)                 │
+│ IncidenciaId/Ejecucion/Lectu │     │ Fecha (UNIQUE)                 │
 │ TipoEvento / Estado / Fecha  │     │ UsuarioId FK (responsable día) │
-└──────────────────────────────┘     │ OrigenAsignacion AUTO/MANUAL   │
+│ (dedupe por entidad §28)     │     │ OrigenAsignacion AUTO/MANUAL   │
+└──────────────────────────────┘     └────────────────────────────────┘
                                       └────────────────────────────────┘
 ┌──────────────────────────────┐
 │ historial (§27, §35)         │  Auditoría genérica:
@@ -123,7 +124,7 @@ Requiere SQL Server 2019 (producción en `10.0.3.8`). El script es idempotente (
 | **Regla crítica de eliminación** (§30) | `transferencias.OrigenEliminado` solo puede ponerse en 1 cuando `Estado = 'COMPLETADA'` (regla validada por la capa de aplicación/agente). Nunca `copiar -> eliminar`. |
 | **Responsable ≠ Interventor** (§21) | `incidencias.ResponsableDiaId` (quién es responsable ese día) y `incidencias.UsuarioAtendioId` + `acciones_incidencia.UsuarioId` (quién intervino) son campos distintos, como pide el plan. |
 | **Historial auditable** (§27) | Tabla genérica `historial` con JSON antes/después permite responder "¿quién intervino?", "¿cuánto tardó?", "¿qué cambió en la rotación?". |
-| **Anti-spam de alertas** (§28) | La tabla `alertas` permite deduplicar por `(TipoEvento, IncidenciaId)` en la capa de envío. |
+| **Anti-spam de alertas** (§28) | Las ADVERTENCIAS no crean incidencia (por diseño), así que la alerta NO se deduplica solo por `IncidenciaId`: se deduplica por la **entidad que la originó** — ERROR→`IncidenciaId`, ADVERTENCIA de respaldo→`EjecucionId`, ADVERTENCIA de disco→`LecturaDiscoId` — con índice único filtrado por cada combinación (predicado explícito sobre la columna nullable, nota de equipo). Solo `ENVIADA`/`SUPRIMIDA` suprimen; `FALLIDA`/`PENDIENTE` se reintentan sobre la misma fila. |
 | **Retención configurable** (§31) | `reglas_retencion` por grupo: 3 meses, 1 Full + 1 Diferencial por mes. `DepuracionActiva` habilita la depuración en fase posterior. |
 
 ## Pendientes de fases posteriores (no bloquean este esquema)

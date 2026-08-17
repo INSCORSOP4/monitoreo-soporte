@@ -101,9 +101,12 @@ class AlertaOut(BaseModel):
 
     alerta_id: int
     incidencia_id: int | None = None
+    ejecucion_id: int | None = None  # ADVERTENCIA de respaldo (sin incidencia)
+    lectura_disco_id: int | None = None  # ADVERTENCIA de disco (sin incidencia)
     tipo_evento: str
     asunto: str
     estado: str
+    error_detalle: str | None = None
     fecha_envio: datetime | None = None
 
 
