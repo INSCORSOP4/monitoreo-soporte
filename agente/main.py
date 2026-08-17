@@ -9,6 +9,8 @@ Ciclo:
      Microsip en agente_6_5/). El despacho es por tipo_fuente vía crear_checker().
   3. Reporta cada validación (POST /api/v1/respaldos/ejecuciones, idempotente).
      El backend crea la incidencia automática si el estado es ERROR (§26).
+  4. Tras respaldos y discos, valida los pasos catalogados de SQL Server Agent
+     y los reporta por POST /api/v1/jobs/ejecuciones.
 
 Uso:
   python main.py
@@ -17,7 +19,8 @@ Uso:
   python main.py --solo PROSUR_PRIME         # solo una base
   python main.py --dry-run                   # valida sin reportar
 
-Código de salida: 0 sin errores, 1 si hubo ERROR (útil para Task Scheduler).
+Código de salida: 0 sin errores, 1 si encontró un problema real y 2 si falló
+el propio checker (credenciales, sqlcmd, msdb o CSV).
 """
 import argparse
 import sys
@@ -26,7 +29,16 @@ from datetime import date
 from api_client import ApiClient, ApiError
 from checkers import crear_checker
 from checkers.disk_checker import DiskChecker
-from config import AGENT_API_KEY, AGENT_FECHA, AGENT_ORIGEN_DIR, AGENT_TIPO_FUENTES, API_BASE_URL
+from checkers.jobs_checker import JobsChecker, JobsCheckerError
+from config import (
+    AGENT_API_KEY,
+    AGENT_FECHA,
+    AGENT_ORIGEN_DIR,
+    AGENT_TIPO_FUENTES,
+    API_BASE_URL,
+    SQL_JOBS_PASSWORD,
+    SQL_JOBS_USER,
+)
 from logger import get_logger
 
 logger = get_logger(__name__)
@@ -82,7 +94,7 @@ def main() -> int:
 
     logger.info("Bases a validar: %s", ", ".join(b["nombre_base"] for b in bases) or "(ninguna)")
 
-    conteo = {"OK": 0, "ADVERTENCIA": 0, "ERROR": 0, "NO_APLICA": 0}
+    conteo = {"OK": 0, "ADVERTENCIA": 0, "ERROR": 0, "PENDIENTE": 0, "NO_APLICA": 0}
 
     for base in bases:
         checker = crear_checker(
@@ -145,9 +157,53 @@ def main() -> int:
                 continue
             conteo[lectura["estado"]] += 1
 
+    # SQL Server Agent: forma parte de esta misma corrida nocturna y se ejecuta
+    # al final, cuando ya concluyeron los jobs esperados (incluido 23:30).
+    pasos_jobs = configuracion.get("jobs_pasos", [])
+    fallo_jobs_checker = False
+    if not pasos_jobs:
+        logger.warning("No hay pasos activos de SQL Agent para este servidor")
+    else:
+        try:
+            ejecuciones_jobs = JobsChecker(SQL_JOBS_USER, SQL_JOBS_PASSWORD).check(pasos_jobs, fecha)
+        except JobsCheckerError as exc:
+            fallo_jobs_checker = True
+            ejecuciones_jobs = []
+            logger.error("Jobs Checker no pudo consultar msdb: %s", exc)
+
+        pasos_por_id = {p["paso_monitoreado_id"]: p for p in pasos_jobs}
+        for ejecucion_job in ejecuciones_jobs:
+            paso = pasos_por_id[ejecucion_job["paso_monitoreado_id"]]
+            logger.info(
+                "[%s] SQL Agent %s / %s",
+                ejecucion_job["estado"],
+                paso["nombre_job"],
+                paso["nombre_paso"],
+            )
+            if ejecucion_job.get("mensaje"):
+                logger.info("      %s", ejecucion_job["mensaje"])
+            if args.dry_run:
+                continue
+            try:
+                resp = api.reportar_ejecucion_job(ejecucion_job)
+                logger.info(
+                    "      reportada: estado_final=%s ejecucion_id=%s incidencia_id=%s",
+                    resp.get("estado"),
+                    resp.get("ejecucion_id"),
+                    resp.get("incidencia_id"),
+                )
+            except Exception as exc:  # noqa: BLE001 — se reportan los demás pasos
+                logger.error("      falló el reporte del paso: %s", exc)
+                continue
+            conteo[resp.get("estado", ejecucion_job["estado"])] += 1
+
     resumen = {k: v for k, v in conteo.items() if v}
     logger.info("=" * 62)
     logger.info("RESUMEN: %s", resumen if resumen else "(sin reportes)")
+    if fallo_jobs_checker:
+        logger.info("Código de salida: 2 (falló el Jobs Checker)")
+        return 2
+
     errores = conteo["ERROR"]
     logger.info("Código de salida: %s (%s)", 1 if errores else 0, "hay ERRORES" if errores else "sin errores")
     return 1 if errores else 0

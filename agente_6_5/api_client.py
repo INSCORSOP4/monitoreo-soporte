@@ -70,3 +70,7 @@ class ApiClient:
     def reportar_lectura_disco(self, payload: dict) -> dict:
         """Reporta la lectura de una unidad — POST /discos/lecturas (§33, idempotente)."""
         return self._request("POST", "/api/v1/discos/lecturas", payload)
+
+    def reportar_ejecucion_job(self, payload: dict) -> dict:
+        """Reporta un paso de SQL Agent — POST /jobs/ejecuciones."""
+        return self._request("POST", "/api/v1/jobs/ejecuciones", payload)

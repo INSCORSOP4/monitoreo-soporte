@@ -1,7 +1,7 @@
 """Modelos ORM — Configuración de respaldos (secciones 2.1 a 2.3 del DDL)."""
 from datetime import datetime, time
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Time, text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Time, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -32,6 +32,20 @@ class HorarioEsperado(Base):
     tolerancia_minutos: Mapped[int] = mapped_column("ToleranciaMinutos", Integer, nullable=False, server_default="180")
     activo: Mapped[bool] = mapped_column("Activo", Boolean, nullable=False, server_default="1")
     fecha_registro: Mapped[datetime] = mapped_column("FechaRegistro", DateTime(0), nullable=False, server_default=text("SYSDATETIME()"))
+
+
+class PasoHorarioEsperado(Base):
+    __tablename__ = "pasos_horarios_esperados"
+    __table_args__ = (
+        UniqueConstraint("PasoMonitoreadoId", "DiaSemana", "HoraEsperada", name="UQ_pasos_horarios_PasoDiaHora"),
+    )
+
+    paso_horario_esperado_id: Mapped[int] = mapped_column("PasoHorarioEsperadoId", Integer, primary_key=True, autoincrement=True)
+    paso_monitoreado_id: Mapped[int] = mapped_column("PasoMonitoreadoId", Integer, ForeignKey("cat_pasos_monitoreados.PasoMonitoreadoId"), nullable=False)
+    dia_semana: Mapped[int] = mapped_column("DiaSemana", Integer, nullable=False)
+    dia_aplica: Mapped[bool] = mapped_column("DiaAplica", Boolean, nullable=False)
+    hora_esperada: Mapped[time] = mapped_column("HoraEsperada", Time(0), nullable=False)
+    tolerancia_minutos: Mapped[int] = mapped_column("ToleranciaMinutos", Integer, nullable=False, server_default="30")
 
 
 class ReglaRetencion(Base):

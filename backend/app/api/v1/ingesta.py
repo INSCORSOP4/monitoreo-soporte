@@ -26,7 +26,10 @@ from app.models import (
     CatAgente,
     CatBaseDatos,
     CatGrupoRespaldo,
+    CatJobMonitoreado,
+    CatPasoMonitoreado,
     HorarioEsperado,
+    PasoHorarioEsperado,
     RespaldoEjecucion,
     RutaOrigenDestino,
     Transferencia,
@@ -101,6 +104,48 @@ def configuracion_ingesta(
             }
         )
 
+    jobs_pasos = []
+    if agente.servidor_id is not None:
+        pasos = db.execute(
+            select(CatPasoMonitoreado, CatJobMonitoreado)
+            .join(CatJobMonitoreado, CatJobMonitoreado.job_monitoreado_id == CatPasoMonitoreado.job_monitoreado_id)
+            .where(
+                CatJobMonitoreado.servidor_id == agente.servidor_id,
+                CatJobMonitoreado.activo == True,  # noqa: E712
+                CatPasoMonitoreado.activo == True,  # noqa: E712
+            )
+            .order_by(CatJobMonitoreado.nombre_job, CatPasoMonitoreado.step_id)
+        ).all()
+        ids_pasos = [paso.paso_monitoreado_id for paso, _ in pasos]
+        horarios_jobs = defaultdict(list)
+        if ids_pasos:
+            for horario in db.scalars(
+                select(PasoHorarioEsperado)
+                .where(PasoHorarioEsperado.paso_monitoreado_id.in_(ids_pasos))
+                .order_by(PasoHorarioEsperado.dia_semana, PasoHorarioEsperado.hora_esperada)
+            ):
+                horarios_jobs[horario.paso_monitoreado_id].append(horario)
+        jobs_pasos = [
+            {
+                "paso_monitoreado_id": paso.paso_monitoreado_id,
+                "job_monitoreado_id": job.job_monitoreado_id,
+                "nombre_job": job.nombre_job,
+                "step_id": paso.step_id,
+                "nombre_paso": paso.nombre_paso,
+                "horarios": [
+                    {
+                        "dia_semana": h.dia_semana,
+                        "dia_aplica": h.dia_aplica,
+                        "tipo_backup_esperado": "JOB_SQL_AGENT",
+                        "hora_esperada": h.hora_esperada.strftime("%H:%M"),
+                        "tolerancia_minutos": h.tolerancia_minutos,
+                    }
+                    for h in horarios_jobs[paso.paso_monitoreado_id]
+                ],
+            }
+            for paso, job in pasos
+        ]
+
     logger.info("Configuración entregada a %s: %s bases", agente.nombre, len(bases))
     return ConfiguracionIngestaOut(
         agente_id=agente.agente_id,
@@ -108,6 +153,7 @@ def configuracion_ingesta(
         servidor_id=agente.servidor_id,
         generado_en=datetime.now(timezone.utc).isoformat(),
         bases=bases,
+        jobs_pasos=jobs_pasos,
         disco_warning_pct=settings.disk_warning_pct,
         disco_error_pct=settings.disk_error_pct,
     )

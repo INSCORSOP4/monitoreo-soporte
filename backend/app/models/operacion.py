@@ -1,7 +1,21 @@
 """Modelos ORM — Operación diaria (secciones 3.1 a 3.7 del DDL)."""
-from datetime import date, datetime
+from datetime import date, datetime, time
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    Time,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -122,6 +136,32 @@ class DiscosLectura(Base):
     detalle: Mapped[str | None] = mapped_column("Detalle", Text)
     incidencia_id: Mapped[int | None] = mapped_column("IncidenciaId", Integer, ForeignKey("incidencias.IncidenciaId"))
     fecha_registro: Mapped[datetime] = mapped_column("FechaRegistro", DateTime(0), nullable=False, server_default=text("SYSDATETIME()"))
+
+
+class JobsPasoEjecucion(Base):
+    __tablename__ = "jobs_pasos_ejecuciones"
+    __table_args__ = (
+        UniqueConstraint("PasoMonitoreadoId", "FechaEjecucion", "HoraEsperada", name="UQ_jobs_pasos_ejecuciones_PasoFechaHora"),
+        CheckConstraint("Estado IN ('OK', 'ERROR', 'PENDIENTE', 'NO_APLICA')", name="CK_jobs_pasos_ejecuciones_Estado"),
+    )
+
+    ejecucion_id: Mapped[int] = mapped_column("EjecucionId", BigInteger, primary_key=True, autoincrement=True)
+    paso_monitoreado_id: Mapped[int] = mapped_column(
+        "PasoMonitoreadoId",
+        Integer,
+        ForeignKey("cat_pasos_monitoreados.PasoMonitoreadoId"),
+        nullable=False,
+    )
+    fecha_ejecucion: Mapped[date] = mapped_column("FechaEjecucion", Date, nullable=False)
+    hora_esperada: Mapped[time] = mapped_column("HoraEsperada", Time(0), nullable=False)
+    estado: Mapped[str] = mapped_column("Estado", String(10), nullable=False)
+    fecha_hora_real: Mapped[datetime | None] = mapped_column("FechaHoraReal", DateTime(0))
+    mensaje: Mapped[str | None] = mapped_column("Mensaje", String(500))
+    incidencia_id: Mapped[int | None] = mapped_column(
+        "IncidenciaId",
+        Integer,
+        ForeignKey("incidencias.IncidenciaId"),
+    )
 
 
 class Rotacion(Base):

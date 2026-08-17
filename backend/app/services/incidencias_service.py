@@ -139,11 +139,36 @@ def crear_o_reutilizar_incidencia_disco(
     checker reenvía el ERROR el mismo día, se reutiliza la incidencia SISTEMA
     abierta (barrera BD: UQ_incidencias_DISCO_Abierta/_EnProceso).
     """
+    return crear_o_reutilizar_incidencia_servidor(
+        db,
+        servidor_id=servidor.servidor_id,
+        servidor_nombre=servidor.nombre,
+        tipo_codigo="DISCO_SERVIDOR",
+        fecha=fecha,
+        problema=problema,
+        detalle=detalle,
+    )
+
+
+def crear_o_reutilizar_incidencia_servidor(
+    db: Session,
+    *,
+    servidor_id: int,
+    servidor_nombre: str,
+    tipo_codigo: str,
+    fecha: date,
+    problema: str,
+    detalle: str | None = None,
+) -> Incidencia:
+    """Incidencia SISTEMA diaria por servidor y tipo."""
+    tipo_id = _tipo_incidencia_por_codigo(db, tipo_codigo)
+
     def _abierta_existente():
         return db.scalar(
             select(Incidencia).where(
-                Incidencia.servidor_id == servidor.servidor_id,
+                Incidencia.servidor_id == servidor_id,
                 Incidencia.base_datos_id.is_(None),
+                Incidencia.tipo_incidencia_id == tipo_id,
                 Incidencia.fecha_incidencia == fecha,
                 Incidencia.detectada_por == "SISTEMA",
                 Incidencia.estado.in_(["ABIERTA", "EN_PROCESO"]),
@@ -155,8 +180,8 @@ def crear_o_reutilizar_incidencia_disco(
         return existente
 
     incidencia = Incidencia(
-        tipo_incidencia_id=_tipo_incidencia_por_codigo(db, "DISCO_SERVIDOR"),
-        servidor_id=servidor.servidor_id,
+        tipo_incidencia_id=tipo_id,
+        servidor_id=servidor_id,
         base_datos_id=None,
         fecha_incidencia=fecha,
         estado="ABIERTA",
@@ -176,9 +201,10 @@ def crear_o_reutilizar_incidencia_disco(
         return existente
 
     logger.info(
-        "Incidencia #%s (SISTEMA/disco) creada: servidor %s, fecha %s, responsable_dia_id %s",
+        "Incidencia #%s (SISTEMA/%s) creada: servidor %s, fecha %s, responsable_dia_id %s",
         incidencia.incidencia_id,
-        servidor.nombre,
+        tipo_codigo,
+        servidor_nombre,
         fecha,
         incidencia.responsable_dia_id,
     )

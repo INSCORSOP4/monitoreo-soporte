@@ -30,6 +30,15 @@ class BaseConfigOut(BaseModel):
     horarios: list[HorarioConfigOut] = []
 
 
+class JobPasoConfigOut(BaseModel):
+    paso_monitoreado_id: int
+    job_monitoreado_id: int
+    nombre_job: str
+    step_id: int
+    nombre_paso: str
+    horarios: list[HorarioConfigOut] = []
+
+
 class ConfiguracionIngestaOut(BaseModel):
     agente_id: int
     agente_nombre: str
@@ -39,6 +48,7 @@ class ConfiguracionIngestaOut(BaseModel):
     servidor_id: int | None = None
     generado_en: str
     bases: list[BaseConfigOut]
+    jobs_pasos: list[JobPasoConfigOut] = []
     # Disco Checker (§33): umbrales GLOBALES de espacio libre (%). El agente los
     # lee de aquí — no los tiene quemados (§35). Misma política para todas las
     # unidades; si algún día se necesita por unidad, se agrega después.

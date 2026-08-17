@@ -12,6 +12,7 @@ from app.api.v1 import (
     historial,
     incidencias,
     ingesta,
+    jobs,
     respaldos,
     responsables,
     roles,
@@ -33,6 +34,7 @@ api_router.include_router(bases_datos.router)
 api_router.include_router(respaldos.router)
 api_router.include_router(transferencias.router)
 api_router.include_router(discos.router)
+api_router.include_router(jobs.router)
 api_router.include_router(incidencias.router)
 api_router.include_router(responsables.router)
 api_router.include_router(alertas.router)

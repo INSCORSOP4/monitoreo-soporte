@@ -1,7 +1,7 @@
 """Modelos ORM — Catálogos (esquema dbo, secciones 1.1 a 1.6 del DDL)."""
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -91,3 +91,33 @@ class CatAgente(Base):
     servidor_id: Mapped[int | None] = mapped_column("ServidorId", Integer, ForeignKey("cat_servidores.ServidorId"))  # §33: servidor donde corre el agente
     activo: Mapped[bool] = mapped_column("Activo", Boolean, nullable=False, server_default="1")
     fecha_registro: Mapped[datetime] = mapped_column("FechaRegistro", DateTime(0), nullable=False, server_default=text("SYSDATETIME()"))
+
+
+class CatJobMonitoreado(Base):
+    __tablename__ = "cat_jobs_monitoreados"
+    __table_args__ = (
+        UniqueConstraint("ServidorId", "NombreJob", name="UQ_cat_jobs_monitoreados_ServidorNombre"),
+    )
+
+    job_monitoreado_id: Mapped[int] = mapped_column("JobMonitoreadoId", Integer, primary_key=True, autoincrement=True)
+    servidor_id: Mapped[int] = mapped_column("ServidorId", Integer, ForeignKey("cat_servidores.ServidorId"), nullable=False)
+    nombre_job: Mapped[str] = mapped_column("NombreJob", String(128), nullable=False)
+    activo: Mapped[bool] = mapped_column("Activo", Boolean, nullable=False, server_default="1")
+
+
+class CatPasoMonitoreado(Base):
+    __tablename__ = "cat_pasos_monitoreados"
+    __table_args__ = (
+        UniqueConstraint("JobMonitoreadoId", "StepId", name="UQ_cat_pasos_monitoreados_JobStep"),
+    )
+
+    paso_monitoreado_id: Mapped[int] = mapped_column("PasoMonitoreadoId", Integer, primary_key=True, autoincrement=True)
+    job_monitoreado_id: Mapped[int] = mapped_column(
+        "JobMonitoreadoId",
+        Integer,
+        ForeignKey("cat_jobs_monitoreados.JobMonitoreadoId"),
+        nullable=False,
+    )
+    step_id: Mapped[int] = mapped_column("StepId", Integer, nullable=False)
+    nombre_paso: Mapped[str] = mapped_column("NombrePaso", String(128), nullable=False)
+    activo: Mapped[bool] = mapped_column("Activo", Boolean, nullable=False, server_default="1")

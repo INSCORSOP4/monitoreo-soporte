@@ -1,5 +1,5 @@
 """Schemas de operación (ejecuciones, incidencias, alertas, historial)."""
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -60,6 +60,28 @@ class DiscosLecturaCreate(BaseModel):
     porcentaje_libre: float = Field(ge=0, le=100)
     estado: str = Field(pattern="^(OK|ADVERTENCIA|ERROR)$")
     detalle: str | None = Field(default=None, max_length=2000)  # trazabilidad del checker (§35)
+
+
+class JobPasoEjecucionCreate(BaseModel):
+    paso_monitoreado_id: int = Field(gt=0)
+    fecha_ejecucion: date
+    hora_esperada: time
+    estado: str = Field(pattern="^(OK|ERROR|PENDIENTE|NO_APLICA)$")
+    fecha_hora_real: datetime | None = None
+    mensaje: str | None = Field(default=None, max_length=500)
+
+
+class JobPasoEjecucionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    ejecucion_id: int
+    paso_monitoreado_id: int
+    fecha_ejecucion: date
+    hora_esperada: time
+    estado: str
+    fecha_hora_real: datetime | None = None
+    mensaje: str | None = None
+    incidencia_id: int | None = None
 
 
 class IncidenciaOut(BaseModel):

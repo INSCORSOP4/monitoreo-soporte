@@ -77,6 +77,7 @@ backend/
 | GET | `/api/v1/servidores` | Catálogo de servidores |
 | GET | `/api/v1/bases-datos?grupo_respaldo_id=N` | Catálogo de bases (§9/§10) |
 | POST | `/api/v1/respaldos/ejecuciones` | Ingesta del agente (§8): reporta validación diaria por base (idempotente por Base+Fecha). Si `estado=ERROR`, crea/reutiliza la incidencia automática `SISTEMA` con el responsable del día (§26) |
+| POST | `/api/v1/jobs/ejecuciones` | Ingesta de pasos de SQL Agent: idempotente por Paso+Fecha; un `ERROR` crea/reutiliza incidencia `JOB_SQL_AGENT` |
 | GET | `/api/v1/respaldos/resumen?fecha=2026-08-08` | Resumen por grupo (bitácora §24) |
 | GET | `/api/v1/dashboard/resumen?fecha=2026-08-08` | Indicadores del dashboard (§25) |
 | GET | `/api/v1/responsables-dia/hoy` | Responsable del día para el dashboard (§21): dispara la asignación automática por rotación si aún no existe (solo días hábiles) |

@@ -248,6 +248,70 @@ JOIN dbo.cat_servidores s ON s.Nombre = REPLACE(a.Nombre, 'AGENTE_', '')
 WHERE a.ServidorId IS NULL;
 GO
 
+/* ----------------------------------------------------------------------------
+   1.8 cat_jobs_monitoreados / cat_pasos_monitoreados — SQL Server Agent
+---------------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.cat_jobs_monitoreados', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.cat_jobs_monitoreados
+    (
+        JobMonitoreadoId INT           NOT NULL IDENTITY(1,1),
+        ServidorId       INT           NOT NULL,
+        NombreJob        NVARCHAR(128) NOT NULL,
+        Activo           BIT           NOT NULL CONSTRAINT DF_cat_jobs_Activo DEFAULT (1),
+        CONSTRAINT PK_cat_jobs_monitoreados PRIMARY KEY CLUSTERED (JobMonitoreadoId),
+        CONSTRAINT UQ_cat_jobs_monitoreados_ServidorNombre UNIQUE (ServidorId, NombreJob),
+        CONSTRAINT FK_cat_jobs_monitoreados_Servidor FOREIGN KEY (ServidorId)
+            REFERENCES dbo.cat_servidores (ServidorId)
+    );
+END
+GO
+
+IF OBJECT_ID(N'dbo.cat_pasos_monitoreados', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.cat_pasos_monitoreados
+    (
+        PasoMonitoreadoId INT           NOT NULL IDENTITY(1,1),
+        JobMonitoreadoId  INT           NOT NULL,
+        StepId            INT           NOT NULL,
+        NombrePaso        NVARCHAR(128) NOT NULL,
+        Activo            BIT           NOT NULL CONSTRAINT DF_cat_pasos_Activo DEFAULT (1),
+        CONSTRAINT PK_cat_pasos_monitoreados PRIMARY KEY CLUSTERED (PasoMonitoreadoId),
+        CONSTRAINT UQ_cat_pasos_monitoreados_JobStep UNIQUE (JobMonitoreadoId, StepId),
+        CONSTRAINT FK_cat_pasos_monitoreados_Job FOREIGN KEY (JobMonitoreadoId)
+            REFERENCES dbo.cat_jobs_monitoreados (JobMonitoreadoId)
+    );
+END
+GO
+
+IF OBJECT_ID(N'dbo.pasos_horarios_esperados', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.pasos_horarios_esperados
+    (
+        PasoHorarioEsperadoId INT     NOT NULL IDENTITY(1,1),
+        PasoMonitoreadoId     INT     NOT NULL,
+        DiaSemana             TINYINT NOT NULL, -- 1=Lun ... 7=Dom
+        DiaAplica             BIT     NOT NULL,
+        HoraEsperada          TIME(0) NOT NULL,
+        ToleranciaMinutos     INT     NOT NULL CONSTRAINT DF_pasos_horarios_Tolerancia DEFAULT (30),
+        CONSTRAINT PK_pasos_horarios_esperados PRIMARY KEY CLUSTERED (PasoHorarioEsperadoId),
+        CONSTRAINT UQ_pasos_horarios_PasoDiaHora UNIQUE (PasoMonitoreadoId, DiaSemana, HoraEsperada),
+        CONSTRAINT FK_pasos_horarios_Paso FOREIGN KEY (PasoMonitoreadoId)
+            REFERENCES dbo.cat_pasos_monitoreados (PasoMonitoreadoId),
+        CONSTRAINT CK_pasos_horarios_Dia CHECK (DiaSemana BETWEEN 1 AND 7),
+        CONSTRAINT CK_pasos_horarios_Tolerancia CHECK (ToleranciaMinutos >= 0)
+    );
+END
+GO
+
+IF OBJECT_ID(N'dbo.UQ_pasos_horarios_PasoDia', N'UQ') IS NOT NULL
+    ALTER TABLE dbo.pasos_horarios_esperados DROP CONSTRAINT UQ_pasos_horarios_PasoDia;
+GO
+IF OBJECT_ID(N'dbo.UQ_pasos_horarios_PasoDiaHora', N'UQ') IS NULL
+    ALTER TABLE dbo.pasos_horarios_esperados ADD CONSTRAINT UQ_pasos_horarios_PasoDiaHora
+        UNIQUE (PasoMonitoreadoId, DiaSemana, HoraEsperada);
+GO
+
 -- ============================================================================
 -- 2. CONFIGURACIÓN DE RESPALDOS  (§9, §10, §16, §31)
 -- ============================================================================
@@ -658,6 +722,67 @@ IF COL_LENGTH(N'dbo.discos_lecturas', N'IncidenciaId') IS NULL
     ALTER TABLE dbo.discos_lecturas ADD IncidenciaId INT NULL;
 GO
 
+/* ----------------------------------------------------------------------------
+   3.9 jobs_pasos_ejecuciones — Resultado diario de cada paso monitoreado.
+        UNIQUE (PasoMonitoreadoId, FechaEjecucion, HoraEsperada): reejecutar
+        una ventana actualiza su ejecución sin ocultar otras corridas del día.
+---------------------------------------------------------------------------- */
+IF OBJECT_ID(N'dbo.jobs_pasos_ejecuciones', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.jobs_pasos_ejecuciones
+    (
+        EjecucionId       BIGINT        NOT NULL IDENTITY(1,1),
+        PasoMonitoreadoId INT           NOT NULL,
+        FechaEjecucion    DATE          NOT NULL,
+        HoraEsperada      TIME(0)       NOT NULL,
+        Estado            VARCHAR(10)   NOT NULL,
+        FechaHoraReal     DATETIME2(0)  NULL,
+        Mensaje           NVARCHAR(500) NULL,
+        IncidenciaId      INT           NULL,
+        CONSTRAINT PK_jobs_pasos_ejecuciones PRIMARY KEY CLUSTERED (EjecucionId),
+        CONSTRAINT UQ_jobs_pasos_ejecuciones_PasoFechaHora UNIQUE (PasoMonitoreadoId, FechaEjecucion, HoraEsperada),
+        CONSTRAINT FK_jobs_pasos_ejecuciones_Incidencia FOREIGN KEY (IncidenciaId)
+            REFERENCES dbo.incidencias (IncidenciaId),
+        CONSTRAINT FK_jobs_pasos_ejecuciones_Paso FOREIGN KEY (PasoMonitoreadoId)
+            REFERENCES dbo.cat_pasos_monitoreados (PasoMonitoreadoId),
+        CONSTRAINT CK_jobs_pasos_ejecuciones_Estado CHECK (Estado IN ('OK', 'ERROR', 'PENDIENTE', 'NO_APLICA'))
+    );
+END
+GO
+
+IF COL_LENGTH(N'dbo.jobs_pasos_ejecuciones', N'HoraEsperada') IS NULL
+    ALTER TABLE dbo.jobs_pasos_ejecuciones ADD HoraEsperada TIME(0) NULL;
+GO
+IF OBJECT_ID(N'dbo.UQ_jobs_pasos_ejecuciones_PasoFecha', N'UQ') IS NOT NULL
+    ALTER TABLE dbo.jobs_pasos_ejecuciones DROP CONSTRAINT UQ_jobs_pasos_ejecuciones_PasoFecha;
+GO
+IF OBJECT_ID(N'dbo.UQ_jobs_pasos_ejecuciones_PasoFechaHora', N'UQ') IS NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.jobs_pasos_ejecuciones') AND name=N'HoraEsperada' AND is_nullable=1)
+    ALTER TABLE dbo.jobs_pasos_ejecuciones ADD CONSTRAINT UQ_jobs_pasos_ejecuciones_PasoFechaHora
+        UNIQUE (PasoMonitoreadoId, FechaEjecucion, HoraEsperada);
+GO
+
+IF EXISTS (
+    SELECT 1 FROM sys.check_constraints
+    WHERE name = 'CK_jobs_pasos_ejecuciones_Estado'
+      AND parent_object_id = OBJECT_ID(N'dbo.jobs_pasos_ejecuciones')
+      AND definition NOT LIKE '%NO_APLICA%'
+)
+    ALTER TABLE dbo.jobs_pasos_ejecuciones DROP CONSTRAINT CK_jobs_pasos_ejecuciones_Estado;
+GO
+
+IF OBJECT_ID(N'dbo.CK_jobs_pasos_ejecuciones_Estado', N'C') IS NULL
+    ALTER TABLE dbo.jobs_pasos_ejecuciones
+        ADD CONSTRAINT CK_jobs_pasos_ejecuciones_Estado
+            CHECK (Estado IN ('OK', 'ERROR', 'PENDIENTE', 'NO_APLICA'));
+GO
+
+IF OBJECT_ID(N'dbo.FK_jobs_pasos_ejecuciones_Paso', N'F') IS NULL
+    ALTER TABLE dbo.jobs_pasos_ejecuciones
+        ADD CONSTRAINT FK_jobs_pasos_ejecuciones_Paso FOREIGN KEY (PasoMonitoreadoId)
+            REFERENCES dbo.cat_pasos_monitoreados (PasoMonitoreadoId);
+GO
+
 -- ============================================================================
 -- 4. HISTORIAL  (§27, §35)
 -- ============================================================================
@@ -720,11 +845,44 @@ IF OBJECT_ID(N'dbo.FK_alertas_LecturaDisco', N'F') IS NULL
         ADD CONSTRAINT FK_alertas_LecturaDisco FOREIGN KEY (LecturaDiscoId) REFERENCES dbo.discos_lecturas (LecturaId);
 GO
 
--- §26: barrera de idempotencia para incidencias de DISCO (BaseDatosId=NULL).
+-- §26: barrera de idempotencia para incidencias por SERVIDOR y TIPO
+-- (DISCO_SERVIDOR / JOB_SQL_AGENT, BaseDatosId=NULL).
 -- Los índices de respaldo cubren (Base, Fecha); en disco la entidad es el
 -- SERVIDOR: (ServidorId, FechaIncidencia, SISTEMA). Dos (ABIERTA y EN_PROCESO)
 -- por el mismo motivo que los de respaldo (SQL Server no permite IN en filtrado).
 SET QUOTED_IDENTIFIER ON;  -- los índices filtrados (§26) lo requieren
+GO
+
+IF EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'UQ_incidencias_DISCO_Abierta' AND object_id = OBJECT_ID(N'dbo.incidencias')
+)
+AND NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes i
+    JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+    JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+    WHERE i.name = 'UQ_incidencias_DISCO_Abierta'
+      AND i.object_id = OBJECT_ID(N'dbo.incidencias')
+      AND c.name = 'TipoIncidenciaId'
+)
+    DROP INDEX UQ_incidencias_DISCO_Abierta ON dbo.incidencias;
+GO
+
+IF EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'UQ_incidencias_DISCO_EnProceso' AND object_id = OBJECT_ID(N'dbo.incidencias')
+)
+AND NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes i
+    JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+    JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+    WHERE i.name = 'UQ_incidencias_DISCO_EnProceso'
+      AND i.object_id = OBJECT_ID(N'dbo.incidencias')
+      AND c.name = 'TipoIncidenciaId'
+)
+    DROP INDEX UQ_incidencias_DISCO_EnProceso ON dbo.incidencias;
 GO
 
 IF NOT EXISTS (
@@ -732,7 +890,7 @@ IF NOT EXISTS (
     WHERE name = 'UQ_incidencias_DISCO_Abierta' AND object_id = OBJECT_ID(N'dbo.incidencias')
 )
     CREATE UNIQUE NONCLUSTERED INDEX UQ_incidencias_DISCO_Abierta
-        ON dbo.incidencias (ServidorId, FechaIncidencia, DetectadaPor)
+        ON dbo.incidencias (ServidorId, TipoIncidenciaId, FechaIncidencia, DetectadaPor)
         WHERE DetectadaPor = 'SISTEMA' AND Estado = 'ABIERTA' AND BaseDatosId IS NULL;
 GO
 
@@ -741,7 +899,7 @@ IF NOT EXISTS (
     WHERE name = 'UQ_incidencias_DISCO_EnProceso' AND object_id = OBJECT_ID(N'dbo.incidencias')
 )
     CREATE UNIQUE NONCLUSTERED INDEX UQ_incidencias_DISCO_EnProceso
-        ON dbo.incidencias (ServidorId, FechaIncidencia, DetectadaPor)
+        ON dbo.incidencias (ServidorId, TipoIncidenciaId, FechaIncidencia, DetectadaPor)
         WHERE DetectadaPor = 'SISTEMA' AND Estado = 'EN_PROCESO' AND BaseDatosId IS NULL;
 GO
 
@@ -875,7 +1033,167 @@ BEGIN
 END
 GO
 
--- 6.5 Bases FORTIA (§10) — las 3 bases con su configuración completa
+IF NOT EXISTS (SELECT 1 FROM dbo.cat_tipos_incidencia WHERE Codigo = 'JOB_SQL_AGENT')
+    INSERT INTO dbo.cat_tipos_incidencia (Codigo, Nombre)
+    VALUES (N'JOB_SQL_AGENT', N'Job de SQL Server Agent');
+GO
+
+-- 6.5 Jobs y pasos SQL Agent de 10.0.3.8 (11 jobs / 49 pasos)
+DECLARE @ServidorJobsId INT = (
+    SELECT ServidorId FROM dbo.cat_servidores WHERE Nombre = N'10.0.3.8'
+);
+
+IF @ServidorJobsId IS NULL
+    THROW 50001, 'No existe el servidor 10.0.3.8 para sembrar SQL Agent.', 1;
+
+INSERT INTO dbo.cat_jobs_monitoreados (ServidorId, NombreJob, Activo)
+SELECT @ServidorJobsId, v.NombreJob, 1
+FROM (VALUES
+    (N'CAJAAHORROS'),
+    (N'Calzamoda'),
+    (N'Chesa'),
+    (N'ChesaDia'),
+    (N'CincoPinos'),
+    (N'ConciliadorCFDI'),
+    (N'DepurarLogs'),
+    (N'Insumos'),
+    (N'NOTIFICACION CAJA AHORROS'),
+    (N'RIOVYNIL'),
+    (N'ValidacionWhatsApp')
+) AS v(NombreJob)
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM dbo.cat_jobs_monitoreados j
+    WHERE j.ServidorId = @ServidorJobsId AND j.NombreJob = v.NombreJob
+);
+
+INSERT INTO dbo.cat_pasos_monitoreados (JobMonitoreadoId, StepId, NombrePaso, Activo)
+SELECT j.JobMonitoreadoId, v.StepId, v.NombrePaso, 1
+FROM (VALUES
+    (N'CAJAAHORROS', 1, N'EstadoDeCuenta'),
+    (N'Calzamoda', 1, N'NotificaciónDiferenciaInvParciales'),
+    (N'Calzamoda', 2, N'DashboardCalzamoda'),
+    (N'Chesa', 1, N'BINuevo'),
+    (N'Chesa', 2, N'InventariosChesa'),
+    (N'Chesa', 3, N'EnvioCorreosSIVALE'),
+    (N'Chesa', 4, N'SIVALE'),
+    (N'Chesa', 5, N'APV´S comisiones'),
+    (N'Chesa', 6, N'CONTACT_CENTER'),
+    (N'Chesa', 7, N'PLANEACION_INVENTARIOS'),
+    (N'ChesaDia', 1, N'BINuevo'),
+    (N'ChesaDia', 2, N'InventariosChesa'),
+    (N'CincoPinos', 1, N'BINuevo'),
+    (N'CincoPinos', 2, N'BIPinotepa'),
+    (N'ConciliadorCFDI', 1, N'Fortia'),
+    (N'DepurarLogs', 1, N'DWCalzamoda'),
+    (N'DepurarLogs', 2, N'servicedeskclz'),
+    (N'DepurarLogs', 3, N'CincoPinos_DB'),
+    (N'DepurarLogs', 4, N'BDAgencias'),
+    (N'DepurarLogs', 5, N'CAJA_AHORROS'),
+    (N'DepurarLogs', 6, N'RIOVINYL_BD'),
+    (N'DepurarLogs', 7, N'CONCILIACIONES_CFDI'),
+    (N'DepurarLogs', 8, N'Cubos_calzamoda'),
+    (N'DepurarLogs', 9, N'Auditoria_db'),
+    (N'DepurarLogs', 10, N'Fortia Blink'),
+    (N'DepurarLogs', 11, N'Prosur Prime'),
+    (N'DepurarLogs', 12, N'CiudadHidalgo'),
+    (N'DepurarLogs', 13, N'servicedesk10_5'),
+    (N'DepurarLogs', 14, N'DBFinanza'),
+    (N'DepurarLogs', 15, N'CinciPinos'),
+    (N'DepurarLogs', 16, N'FIDECOMISO PALENQUE'),
+    (N'DepurarLogs', 17, N'CONCILIACIONES_CFDI_PRUEBA'),
+    (N'DepurarLogs', 18, N'DBCONCILIADOR_CFDI'),
+    (N'DepurarLogs', 19, N'DWAutoomotrizBI'),
+    (N'DepurarLogs', 20, N'CERO PAPEL'),
+    (N'DepurarLogs', 21, N'ARTEMISA'),
+    (N'DepurarLogs', 22, N'SAT_EFOS_Sync_DB'),
+    (N'DepurarLogs', 23, N'SIE_FORTIA_BD'),
+    (N'DepurarLogs', 24, N'Objetivos'),
+    (N'Insumos', 1, N'LineasTrab'),
+    (N'Insumos', 2, N'Fortia BI'),
+    (N'Insumos', 3, N'Seguridad'),
+    (N'Insumos', 4, N'Actualizar tabla efos'),
+    (N'Insumos', 5, N'Actualizar estatus proveedores'),
+    (N'Insumos', 6, N'Baja Usuarios Microsip e Intelisis'),
+    (N'Insumos', 7, N'ActualizarTrabajadoresCocina'),
+    (N'NOTIFICACION CAJA AHORROS', 1, N'ENVIAR NOTIFICACION'),
+    (N'RIOVYNIL', 1, N'Microsip'),
+    (N'ValidacionWhatsApp', 1, N'Revisión de Envío de Notificaiones  WhatsApp')
+) AS v(NombreJob, StepId, NombrePaso)
+JOIN dbo.cat_jobs_monitoreados j
+    ON j.ServidorId = @ServidorJobsId AND j.NombreJob = v.NombreJob
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM dbo.cat_pasos_monitoreados p
+    WHERE p.JobMonitoreadoId = j.JobMonitoreadoId AND p.StepId = v.StepId
+);
+
+-- Frecuencia real leída de msdb.dbo.sysschedules el 2026-08-16.
+-- MascaraDias usa el bitmask de SQL Agent: Dom=1, Lun=2, Mar=4, ... Sab=64.
+-- Cada schedule habilitado conserva su propia ventana; un paso puede producir
+-- varias ejecuciones el mismo día sin que una corrida oculte el resultado de otra.
+INSERT INTO dbo.pasos_horarios_esperados
+    (PasoMonitoreadoId, DiaSemana, DiaAplica, HoraEsperada, ToleranciaMinutos)
+SELECT p.PasoMonitoreadoId, d.DiaSemana,
+       CONVERT(bit, CASE WHEN (s.MascaraDias & d.BitSqlAgent) <> 0 THEN 1 ELSE 0 END),
+       s.HoraEsperada, 30
+FROM (VALUES
+    (N'CAJAAHORROS', 127, CAST('14:30' AS TIME(0))),
+    (N'CAJAAHORROS', 127, CAST('23:30' AS TIME(0))),
+    (N'Calzamoda', 127, CAST('07:00' AS TIME(0))),
+    (N'Chesa', 127, CAST('04:00' AS TIME(0))),
+    (N'ChesaDia', 127, CAST('14:35' AS TIME(0))),
+    (N'CincoPinos', 127, CAST('22:00' AS TIME(0))),
+    (N'ConciliadorCFDI', 127, CAST('01:00' AS TIME(0))),
+    (N'DepurarLogs', 13, CAST('21:00' AS TIME(0))),
+    (N'Insumos', 127, CAST('04:00' AS TIME(0))),
+    (N'Insumos', 127, CAST('12:10' AS TIME(0))),
+    (N'NOTIFICACION CAJA AHORROS', 127, CAST('09:00' AS TIME(0))),
+    (N'NOTIFICACION CAJA AHORROS', 127, CAST('16:00' AS TIME(0))),
+    (N'RIOVYNIL', 127, CAST('01:00' AS TIME(0))),
+    (N'ValidacionWhatsApp', 126, CAST('10:00' AS TIME(0))),
+    (N'ValidacionWhatsApp', 126, CAST('12:00' AS TIME(0)))
+) AS s(NombreJob, MascaraDias, HoraEsperada)
+JOIN dbo.cat_jobs_monitoreados j
+    ON j.ServidorId = @ServidorJobsId AND j.NombreJob = s.NombreJob
+JOIN dbo.cat_pasos_monitoreados p ON p.JobMonitoreadoId = j.JobMonitoreadoId
+CROSS JOIN (VALUES
+    (1, 2), (2, 4), (3, 8), (4, 16), (5, 32), (6, 64), (7, 1)
+) AS d(DiaSemana, BitSqlAgent)
+WHERE NOT EXISTS (
+    SELECT 1 FROM dbo.pasos_horarios_esperados h
+    WHERE h.PasoMonitoreadoId = p.PasoMonitoreadoId AND h.DiaSemana = d.DiaSemana
+      AND h.HoraEsperada = s.HoraEsperada
+);
+
+-- Migración de ejecuciones creadas antes de que HoraEsperada formara parte
+-- de su identidad. Se asocian a la última ventana configurada de ese día.
+IF EXISTS (SELECT 1 FROM dbo.jobs_pasos_ejecuciones WHERE HoraEsperada IS NULL)
+BEGIN
+    UPDATE e SET HoraEsperada = x.HoraEsperada
+    FROM dbo.jobs_pasos_ejecuciones e
+    CROSS APPLY (
+        SELECT MAX(h.HoraEsperada) AS HoraEsperada
+        FROM dbo.pasos_horarios_esperados h
+        WHERE h.PasoMonitoreadoId = e.PasoMonitoreadoId
+          AND h.DiaSemana = (DATEDIFF(DAY, CONVERT(date, '19000101', 112), e.FechaEjecucion) % 7) + 1
+    ) x
+    WHERE e.HoraEsperada IS NULL;
+END
+IF EXISTS (SELECT 1 FROM dbo.jobs_pasos_ejecuciones WHERE HoraEsperada IS NULL)
+    THROW 50002, 'No fue posible asociar HoraEsperada a ejecuciones existentes.', 1;
+IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.jobs_pasos_ejecuciones') AND name=N'HoraEsperada' AND is_nullable=1)
+BEGIN
+    IF OBJECT_ID(N'dbo.UQ_jobs_pasos_ejecuciones_PasoFechaHora', N'UQ') IS NOT NULL
+        ALTER TABLE dbo.jobs_pasos_ejecuciones DROP CONSTRAINT UQ_jobs_pasos_ejecuciones_PasoFechaHora;
+    ALTER TABLE dbo.jobs_pasos_ejecuciones ALTER COLUMN HoraEsperada TIME(0) NOT NULL;
+END
+IF OBJECT_ID(N'dbo.UQ_jobs_pasos_ejecuciones_PasoFechaHora', N'UQ') IS NULL
+    ALTER TABLE dbo.jobs_pasos_ejecuciones ADD CONSTRAINT UQ_jobs_pasos_ejecuciones_PasoFechaHora
+        UNIQUE (PasoMonitoreadoId, FechaEjecucion, HoraEsperada);
+GO
+
+-- 6.6 Bases FORTIA (§10) — las 3 bases con su configuración completa
 IF NOT EXISTS (SELECT 1 FROM dbo.cat_bases_datos b JOIN dbo.cat_grupos_respaldo g ON b.GrupoRespaldoId = g.GrupoRespaldoId WHERE g.Codigo = 'SQL_FORTIA')
 BEGIN
     DECLARE @GrupoFortiaId INT = (SELECT GrupoRespaldoId FROM dbo.cat_grupos_respaldo WHERE Codigo = 'SQL_FORTIA');

@@ -8,6 +8,9 @@ catálogo del sistema y reporta el resultado; el backend decide las incidencias
 **Solo biblioteca estándar de Python 3.11+** — no requiere `pip install` en el
 servidor (urllib, json, logging, pathlib, datetime).
 
+Códigos de salida: `0` sin problemas, `1` cuando el monitoreo funcionó y
+detectó un error real, `2` cuando falló el propio checker (msdb/sqlcmd/CSV).
+
 ## ¿Qué hace?
 
 ```
@@ -25,6 +28,9 @@ servidor (urllib, json, logging, pathlib, datetime).
    - ERROR         -> sin archivo de HOY (aunque existan viejos) / vacío / carpeta no accesible
    - NO_APLICA     -> el día no aplica para la base
    El backend crea la incidencia automática (DetectadaPor=SISTEMA) si hay ERROR.
+4. Revisa discos y, al final de la misma corrida nocturna, valida los pasos
+   activos de SQL Server Agent con `sqlcmd`; reporta cada uno por
+   `POST /api/v1/jobs/ejecuciones` (idempotente por paso y fecha).
 ```
 
 ## Estructura
@@ -99,6 +105,8 @@ python main.py --dry-run              # valida sin reportar
 | `AGENT_TIPO_FUENTES` | Fuentes que valida este agente (defecto vacío = todas). En 10.0.3.8: `SQL,MONGO` |
 | `AGENT_FECHA` | Override de fecha operativa (pruebas) |
 | `AGENT_MATCH_SUFIJOS` | Sufijos de archivo considerados respaldos (defecto `.bak,.BAK`) |
+| `SQL_JOBS_USER` | Login de solo lectura en `msdb` con `SQLAgentReaderRole` |
+| `SQL_JOBS_PASSWORD` | Contraseña del login SQL Agent; solo en `.env`, nunca en el repositorio |
 | `HTTP_TIMEOUT` / `HTTP_RETRIES` / `HTTP_RETRY_DELAY` | Red y reintentos (§13) |
 | `LOG_LEVEL` | `INFO` / `DEBUG` |
 
@@ -112,7 +120,8 @@ python main.py --dry-run              # valida sin reportar
    AGENT_ORIGEN_DIR=            # vacío: toma G:\TempRespSQLServer del catálogo
    ```
 3. Probar manualmente: `python main.py` (esperado: 4 bases OK, exit 0).
-4. Task Scheduler → Tarea diaria ~08:30 (después de la ventana nocturna §29):
+4. Task Scheduler → conservar la tarea nocturna existente cerca de medianoche,
+   después del segundo horario de CAJAAHORROS de las 23:30:
    - Programa: `C:\Python311\python.exe`
    - Argumentos: `C:\monitoreo\agente\main.py`
    - Registrar **código de salida**: 0 = sin errores, 1 = hubo ERROR (visible en el resultado de la tarea).

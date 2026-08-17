@@ -6,6 +6,8 @@ from app.models.catalogos import (  # noqa: F401
     CatAgente,
     CatBaseDatos,
     CatGrupoRespaldo,
+    CatJobMonitoreado,
+    CatPasoMonitoreado,
     CatRol,
     CatServidor,
     CatTipoIncidencia,
@@ -13,6 +15,7 @@ from app.models.catalogos import (  # noqa: F401
 )
 from app.models.configuracion import (  # noqa: F401
     HorarioEsperado,
+    PasoHorarioEsperado,
     ReglaRetencion,
     RutaOrigenDestino,
 )
@@ -22,6 +25,7 @@ from app.models.operacion import (  # noqa: F401
     Alerta,
     DiscosLectura,
     Incidencia,
+    JobsPasoEjecucion,
     RespaldoEjecucion,
     ResponsableDia,
     Rotacion,

@@ -10,15 +10,15 @@ _DIR = Path(__file__).resolve().parent
 
 
 def _cargar_env() -> None:
-    archivo = _DIR / ".env"
-    if not archivo.exists():
-        return
-    for linea in archivo.read_text(encoding="utf-8").splitlines():
-        linea = linea.strip()
-        if not linea or linea.startswith("#") or "=" not in linea:
+    for archivo in (_DIR / ".env", _DIR / ".env.sql-jobs"):
+        if not archivo.exists():
             continue
-        clave, _, valor = linea.partition("=")
-        os.environ.setdefault(clave.strip(), valor.strip().strip('"').strip("'"))
+        for linea in archivo.read_text(encoding="utf-8").splitlines():
+            linea = linea.strip()
+            if not linea or linea.startswith("#") or "=" not in linea:
+                continue
+            clave, _, valor = linea.partition("=")
+            os.environ.setdefault(clave.strip(), valor.strip().strip('"').strip("'"))
 
 
 _cargar_env()
@@ -44,6 +44,10 @@ AGENT_MATCH_SUFIJOS = tuple(s for s in _env("AGENT_MATCH_SUFIJOS", ".bak,.BAK").
 # SQL,MONGO (Microsip/Mercaltos corren en el agente 6.5). En 192.168.6.5:
 # MICROSIP,MERCALTOS. Mantener config.py IDÉNTICO entre agente/ y agente_6_5/.
 AGENT_TIPO_FUENTES = tuple(s.strip().upper() for s in _env("AGENT_TIPO_FUENTES", "").split(",") if s.strip())
+
+# --- SQL Server Agent (solo se usa en el agente 10.0.3.8) ---
+SQL_JOBS_USER = _env("SQL_JOBS_USER", "")
+SQL_JOBS_PASSWORD = _env("SQL_JOBS_PASSWORD", "")
 
 # --- Red (reintentos §13) ---
 HTTP_TIMEOUT = int(_env("HTTP_TIMEOUT", "15"))

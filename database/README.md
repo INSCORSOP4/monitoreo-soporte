@@ -121,6 +121,8 @@ Requiere SQL Server 2019 (producción en `10.0.3.8`). El script es idempotente (
 | **Horarios por día** (§9/§29) | `horarios_esperados` tiene una fila por `(Base, DiaSemana)`. Así "Lun-Sáb DIF / Dom FULL" y "Dom-Vie DIF / Sáb FULL" son datos, no lógica en código (§35). |
 | **Rutas estrictas** (§5) | Solo se tocan las rutas registradas en `rutas_origen_destino`. El NAS tiene carpetas personales; el sistema nunca opera fuera de estas rutas. |
 | **Idempotencia** (§35) | `UNIQUE (BaseDatosId, FechaEjecucion)` en ejecuciones: reejecutar un agente no duplica. |
+| **Ejecuciones de pasos SQL Agent** | `jobs_pasos_ejecuciones` conserva el estado, hora y mensaje real de SQL Server por paso y día. `UNIQUE (PasoMonitoreadoId, FechaEjecucion)` evita duplicados y `IncidenciaId` vincula errores con Soporte. |
+| **Incidencias de SQL Agent** | `JOB_SQL_AGENT` clasifica por separado los errores detectados en jobs y pasos de SQL Server Agent. |
 | **Regla crítica de eliminación** (§30) | `transferencias.OrigenEliminado` solo puede ponerse en 1 cuando `Estado = 'COMPLETADA'` (regla validada por la capa de aplicación/agente). Nunca `copiar -> eliminar`. |
 | **Responsable ≠ Interventor** (§21) | `incidencias.ResponsableDiaId` (quién es responsable ese día) y `incidencias.UsuarioAtendioId` + `acciones_incidencia.UsuarioId` (quién intervino) son campos distintos, como pide el plan. |
 | **Historial auditable** (§27) | Tabla genérica `historial` con JSON antes/después permite responder "¿quién intervino?", "¿cuánto tardó?", "¿qué cambió en la rotación?". |
