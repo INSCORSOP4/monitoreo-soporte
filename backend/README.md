@@ -1,6 +1,6 @@
 # MONITOREO_SOPORTE — Backend (Fase 3)
 
-API FastAPI del **Sistema de Monitoreo y Bitácora de Soporte**, construida desde cero sobre la base `MONITOREO_SOPORTE` (ver `../database/`).
+API FastAPI del **Sistema de Monitoreo y Bitácora de Soporte**, construida desde cero sobre la base `MONITOREO_SOPORTE` (ver `../database/`). En producción el backend corre en `192.168.6.2` y la base central vive en SQL Server `192.168.6.5`.
 
 ## Requisitos
 
@@ -77,7 +77,7 @@ backend/
 | GET | `/api/v1/servidores` | Catálogo de servidores |
 | GET | `/api/v1/bases-datos?grupo_respaldo_id=N` | Catálogo de bases (§9/§10) |
 | POST | `/api/v1/respaldos/ejecuciones` | Ingesta del agente (§8): reporta validación diaria por base (idempotente por Base+Fecha). Si `estado=ERROR`, crea/reutiliza la incidencia automática `SISTEMA` con el responsable del día (§26) |
-| POST | `/api/v1/jobs/ejecuciones` | Ingesta de pasos de SQL Agent: idempotente por Paso+Fecha; un `ERROR` crea/reutiliza incidencia `JOB_SQL_AGENT` |
+| POST | `/api/v1/jobs/ejecuciones` | Ingesta de pasos de SQL Agent: idempotente por Paso+Fecha+HoraEsperada; un `ERROR` crea/reutiliza incidencia `JOB_SQL_AGENT` |
 | GET | `/api/v1/respaldos/resumen?fecha=2026-08-08` | Resumen por grupo (bitácora §24) |
 | GET | `/api/v1/dashboard/resumen?fecha=2026-08-08` | Indicadores del dashboard (§25) |
 | GET | `/api/v1/responsables-dia/hoy` | Responsable del día para el dashboard (§21): dispara la asignación automática por rotación si aún no existe (solo días hábiles) |
@@ -126,7 +126,7 @@ Las alertas `FALLIDA` se reintentan con `POST /api/v1/alertas/{alerta_id}/reinte
 
 La VPN cifra el tráfico **entre redes**, pero dentro de la red la `X-Agent-Key` viaja en claro si el servicio usa HTTP plano. En producción:
 
-1. Definir `SSL_CERTFILE` y `SSL_KEYFILE` en `.env` (certificado del servidor 10.0.3.8).
+1. Definir `SSL_CERTFILE` y `SSL_KEYFILE` en `.env` (certificado del servidor `192.168.6.2`).
 2. `python run.py` sirve HTTPS con esos archivos (`ssl_certfile`/`ssl_keyfile` de uvicorn).
 3. Los agentes configuran su `BASE_URL` con `https://…` — nunca `http://`.
 

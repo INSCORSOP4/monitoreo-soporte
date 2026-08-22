@@ -92,11 +92,12 @@ python main.py --solo MICROSIP_BACKUP_DIARIO
 
 | Variable | Descripción |
 |---|---|
-| `API_BASE_URL` | Backend central. En 192.168.6.5 apunta al **mismo backend** que el 10.0.3.8. **Producción: siempre `https://…` (§38)** |
+| `API_BASE_URL` | Backend central en `192.168.6.2`. **Producción: siempre `https://…` (§38)** |
 | `AGENT_API_KEY` | Key del agente `<AgenteId>.<secreto>` — la de **AGENTE_192.168.6.5** (su propia key, distinta del 10.0.3.8) |
 | `AGENT_ORIGEN_DIR` | Override de carpeta origen. En 192.168.6.5 **vacío**: usa `D:\Respaldos_Microsip\Local` del catálogo |
 | `AGENT_TIPO_FUENTES` | Fuentes que valida este agente (defecto vacío = todas). En 6.5: `MICROSIP,MERCALTOS` |
 | `AGENT_FECHA` | Override de fecha operativa (pruebas) |
+| `SQL_JOBS_SERVER` / `SQL_JOBS_USER` / `SQL_JOBS_PASSWORD` | Opcional; solo se llena si este agente también monitorea SQL Agent de alguna instancia |
 | `HTTP_TIMEOUT` / `HTTP_RETRIES` / `HTTP_RETRY_DELAY` | Red y reintentos (§13) |
 | `LOG_LEVEL` | `INFO` / `DEBUG` |
 
@@ -105,10 +106,10 @@ python main.py --solo MICROSIP_BACKUP_DIARIO
 1. Copiar la carpeta `agente_6_5/` al servidor (sin `.env`, sin `data/`).
 2. Crear `.env` con:
    ```
-   API_BASE_URL=https://<host-del-backend>
+   API_BASE_URL=https://192.168.6.2
    AGENT_API_KEY=<AgenteId.secreto>
    AGENT_ORIGEN_DIR=            # vacío: toma D:\Respaldos_Microsip\Local del catálogo
-   AGENT_TIPO_FUENTES=MICROSIP
+   AGENT_TIPO_FUENTES=MICROSIP,MERCALTOS
    ```
 3. Probar manualmente: `python main.py` (esperado: 1 base OK, exit 0).
 4. Task Scheduler → Tarea diaria (después de la ventana nocturna §29):

@@ -56,11 +56,19 @@ class ExitCodesTest(unittest.TestCase):
                 "mensaje": "QA",
             }]
 
+        checker_cls = MagicMock(return_value=checker)
+
         with patch.object(agent_main, "AGENT_API_KEY", "qa-key"), \
+             patch.object(agent_main, "SQL_JOBS_SERVER", "sql-qa"), \
+             patch.object(agent_main, "SQL_JOBS_USER", "usuario-qa"), \
+             patch.object(agent_main, "SQL_JOBS_PASSWORD", "password-qa"), \
              patch.object(agent_main, "ApiClient", return_value=ApiFalsa()), \
-             patch.object(agent_main, "JobsChecker", return_value=checker), \
+             patch.object(agent_main, "JobsChecker", checker_cls), \
              patch.object(agent_main.sys, "argv", ["main.py", "--fecha", "2026-08-16"]):
-            return agent_main.main()
+            resultado = agent_main.main()
+
+        checker_cls.assert_called_once_with("usuario-qa", "password-qa", "sql-qa")
+        return resultado
 
 
 if __name__ == "__main__":

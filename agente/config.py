@@ -1,7 +1,7 @@
-"""Configuración del Agente 10.0.3.8 (§35: nada quemado en código).
+"""Configuración común de agentes (§35: nada quemado en código).
 
 Lee variables de entorno y un .env local (formato CLAVE=valor) SIN dependencias
-externas. En 10.0.3.8 se configura vía Task Scheduler o variables del sistema.
+externas. En producción se configura vía Task Scheduler o variables del sistema.
 """
 import os
 from pathlib import Path
@@ -34,8 +34,8 @@ API_BASE_URL = _env("API_BASE_URL", "http://localhost:8000").rstrip("/")
 AGENT_API_KEY = _env("AGENT_API_KEY", "")
 
 # --- Validación ---
-# Override local de la carpeta origen (simulación). En 10.0.3.8 se deja VACÍO:
-# el agente usa la RutaOrigen del catálogo del backend (G:\\TempRespSQLServer).
+# Override local de la carpeta origen (simulación). En producción se deja VACÍO:
+# el agente usa la RutaOrigen del catálogo del backend.
 AGENT_ORIGEN_DIR = _env("AGENT_ORIGEN_DIR", "")
 AGENT_FECHA = _env("AGENT_FECHA", "")  # override "YYYY-MM-DD" para pruebas
 AGENT_MATCH_SUFIJOS = tuple(s for s in _env("AGENT_MATCH_SUFIJOS", ".bak,.BAK").split(",") if s)
@@ -45,7 +45,10 @@ AGENT_MATCH_SUFIJOS = tuple(s for s in _env("AGENT_MATCH_SUFIJOS", ".bak,.BAK").
 # MICROSIP,MERCALTOS. Mantener config.py IDÉNTICO entre agente/ y agente_6_5/.
 AGENT_TIPO_FUENTES = tuple(s.strip().upper() for s in _env("AGENT_TIPO_FUENTES", "").split(",") if s.strip())
 
-# --- SQL Server Agent (solo se usa en el agente 10.0.3.8) ---
+# --- SQL Server Agent (solo se usa en agentes que monitorean SQL Agent) ---
+# localhost = el agente corre en el mismo servidor SQL; usar IP/instancia cuando
+# el agente deba consultar una instancia remota.
+SQL_JOBS_SERVER = _env("SQL_JOBS_SERVER", "localhost")
 SQL_JOBS_USER = _env("SQL_JOBS_USER", "")
 SQL_JOBS_PASSWORD = _env("SQL_JOBS_PASSWORD", "")
 

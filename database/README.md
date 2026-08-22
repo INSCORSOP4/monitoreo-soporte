@@ -9,7 +9,7 @@ Esquema de la base de datos del **Sistema de Monitoreo y Bitácora de Soporte** 
 :r MONITOREO_SOPORTE.sql
 ```
 
-Requiere SQL Server 2019 (producción en `10.0.3.8`). El script es idempotente (`IF OBJECT_ID... IS NULL`), puede ejecutarse varias veces.
+Requiere SQL Server 2019. En producción la base central `MONITOREO_SOPORTE` vive en `192.168.6.5`; `10.0.3.8` y `192.168.6.5` son servidores monitoreados dentro del catálogo. El script es idempotente (`IF OBJECT_ID... IS NULL`), puede ejecutarse varias veces.
 
 ## Diagrama entidad-relación
 
@@ -121,7 +121,7 @@ Requiere SQL Server 2019 (producción en `10.0.3.8`). El script es idempotente (
 | **Horarios por día** (§9/§29) | `horarios_esperados` tiene una fila por `(Base, DiaSemana)`. Así "Lun-Sáb DIF / Dom FULL" y "Dom-Vie DIF / Sáb FULL" son datos, no lógica en código (§35). |
 | **Rutas estrictas** (§5) | Solo se tocan las rutas registradas en `rutas_origen_destino`. El NAS tiene carpetas personales; el sistema nunca opera fuera de estas rutas. |
 | **Idempotencia** (§35) | `UNIQUE (BaseDatosId, FechaEjecucion)` en ejecuciones: reejecutar un agente no duplica. |
-| **Ejecuciones de pasos SQL Agent** | `jobs_pasos_ejecuciones` conserva el estado, hora y mensaje real de SQL Server por paso y día. `UNIQUE (PasoMonitoreadoId, FechaEjecucion)` evita duplicados y `IncidenciaId` vincula errores con Soporte. |
+| **Ejecuciones de pasos SQL Agent** | `jobs_pasos_ejecuciones` conserva el estado, hora esperada y mensaje real de SQL Server por paso, día y ventana. `UNIQUE (PasoMonitoreadoId, FechaEjecucion, HoraEsperada)` evita duplicados y `IncidenciaId` vincula errores con Soporte. |
 | **Incidencias de SQL Agent** | `JOB_SQL_AGENT` clasifica por separado los errores detectados en jobs y pasos de SQL Server Agent. |
 | **Regla crítica de eliminación** (§30) | `transferencias.OrigenEliminado` solo puede ponerse en 1 cuando `Estado = 'COMPLETADA'` (regla validada por la capa de aplicación/agente). Nunca `copiar -> eliminar`. |
 | **Responsable ≠ Interventor** (§21) | `incidencias.ResponsableDiaId` (quién es responsable ese día) y `incidencias.UsuarioAtendioId` + `acciones_incidencia.UsuarioId` (quién intervino) son campos distintos, como pide el plan. |

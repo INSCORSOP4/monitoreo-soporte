@@ -37,6 +37,7 @@ from config import (
     AGENT_TIPO_FUENTES,
     API_BASE_URL,
     SQL_JOBS_PASSWORD,
+    SQL_JOBS_SERVER,
     SQL_JOBS_USER,
 )
 from logger import get_logger
@@ -165,7 +166,7 @@ def main() -> int:
         logger.warning("No hay pasos activos de SQL Agent para este servidor")
     else:
         try:
-            ejecuciones_jobs = JobsChecker(SQL_JOBS_USER, SQL_JOBS_PASSWORD).check(pasos_jobs, fecha)
+            ejecuciones_jobs = JobsChecker(SQL_JOBS_USER, SQL_JOBS_PASSWORD, SQL_JOBS_SERVER).check(pasos_jobs, fecha)
         except JobsCheckerError as exc:
             fallo_jobs_checker = True
             ejecuciones_jobs = []

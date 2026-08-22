@@ -30,7 +30,7 @@ detectó un error real, `2` cuando falló el propio checker (msdb/sqlcmd/CSV).
    El backend crea la incidencia automática (DetectadaPor=SISTEMA) si hay ERROR.
 4. Revisa discos y, al final de la misma corrida nocturna, valida los pasos
    activos de SQL Server Agent con `sqlcmd`; reporta cada uno por
-   `POST /api/v1/jobs/ejecuciones` (idempotente por paso y fecha).
+   `POST /api/v1/jobs/ejecuciones` (idempotente por paso, fecha y hora esperada).
 ```
 
 ## Estructura
@@ -105,6 +105,7 @@ python main.py --dry-run              # valida sin reportar
 | `AGENT_TIPO_FUENTES` | Fuentes que valida este agente (defecto vacío = todas). En 10.0.3.8: `SQL,MONGO` |
 | `AGENT_FECHA` | Override de fecha operativa (pruebas) |
 | `AGENT_MATCH_SUFIJOS` | Sufijos de archivo considerados respaldos (defecto `.bak,.BAK`) |
+| `SQL_JOBS_SERVER` | SQL Server/instancia donde se consulta `msdb` con `sqlcmd` (defecto `localhost`; usar IP/instancia si es remoto) |
 | `SQL_JOBS_USER` | Login de solo lectura en `msdb` con `SQLAgentReaderRole` |
 | `SQL_JOBS_PASSWORD` | Contraseña del login SQL Agent; solo en `.env`, nunca en el repositorio |
 | `HTTP_TIMEOUT` / `HTTP_RETRIES` / `HTTP_RETRY_DELAY` | Red y reintentos (§13) |
@@ -115,9 +116,12 @@ python main.py --dry-run              # valida sin reportar
 1. Copiar la carpeta `agente/` al servidor (sin `.env`, sin `data/`).
 2. Crear `.env` con:
    ```
-   API_BASE_URL=https://<host-del-backend>
+   API_BASE_URL=https://192.168.6.2
    AGENT_API_KEY=<AgenteId.secreto>
    AGENT_ORIGEN_DIR=            # vacío: toma G:\TempRespSQLServer del catálogo
+   SQL_JOBS_SERVER=localhost    # o IP\INSTANCIA si este agente consulta otra instancia
+   SQL_JOBS_USER=<login-solo-lectura-msdb>
+   SQL_JOBS_PASSWORD=<password-en-env>
    ```
 3. Probar manualmente: `python main.py` (esperado: 4 bases OK, exit 0).
 4. Task Scheduler → conservar la tarea nocturna existente cerca de medianoche,

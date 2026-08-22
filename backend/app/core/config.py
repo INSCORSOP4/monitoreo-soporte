@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     # ODBC completa (útil para LocalDB / instancias con nombres como
     # "(localdb)\MSSQLLocalDB" que son frágiles de escapar en la URL).
     db_odbc_connect: str = ""
-    db_host: str = "10.0.3.8"
+    db_host: str = "192.168.6.5"
     db_port: int = 1433
     db_name: str = "MONITOREO_SOPORTE"
     db_user: str = "sa"
@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     db_trust_server_certificate: str = "yes"
 
     # --- SEGURIDAD_PROSUR (solo lectura, §22) ---
-    seguridad_host: str = "10.0.3.8"
+    seguridad_host: str = "192.168.6.5"
     seguridad_port: int = 1433
     seguridad_db: str = "SEGURIDAD_PROSUR"
     seguridad_user: str = "sa"
